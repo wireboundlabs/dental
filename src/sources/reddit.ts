@@ -1,4 +1,5 @@
 import { BROAD_SUBREDDIT_KEYWORDS } from "../config";
+import { RateLimitError, backoffFromHeaders } from "../rate-limit";
 import type { Source, SourceItem } from "./types";
 
 const USER_AGENT = "cloudflare-worker:customer-discovery:v0.1 (read-only research)";
@@ -49,6 +50,9 @@ export class RedditSource implements Source {
       },
       body: "grant_type=client_credentials",
     });
+    if (res.status === 429) {
+      throw new RateLimitError("Reddit token error 429", backoffFromHeaders(res.headers, 300));
+    }
     if (!res.ok) throw new Error(`Reddit token error ${res.status}`);
     const json = (await res.json()) as { access_token?: string };
     if (!json.access_token) throw new Error("Reddit token response missing access_token");
@@ -62,6 +66,10 @@ export class RedditSource implements Source {
       method: "GET",
       headers: { authorization: `Bearer ${token}`, "user-agent": USER_AGENT },
     });
+    // Reddit allows ~100 requests/min per client; we use a handful per run, but honor a 429 if it comes.
+    if (res.status === 429) {
+      throw new RateLimitError(`Reddit API error 429 for ${path}`, backoffFromHeaders(res.headers, 300));
+    }
     if (!res.ok) throw new Error(`Reddit API error ${res.status} for ${path}`);
     return (await res.json()) as RedditListing;
   }

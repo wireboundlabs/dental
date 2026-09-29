@@ -66,7 +66,7 @@ describe("runDraft", () => {
     await recordApiCall(db, { agent: "t", model: "claude-haiku-4-5", inputTokens: 1, outputTokens: 1, costUsd: 3 }, now);
     const s = stub();
     const out = await runDraft(cenv, now, s.fn);
-    expect(out).toEqual({ drafted: 0, stoppedByBudget: true });
+    expect(out).toEqual({ drafted: 0, stoppedByBudget: true, stoppedByRateLimit: false });
     expect(s.bodies).toHaveLength(0);
     expect(await listDraftsByStatus(db, "pending")).toHaveLength(0);
   });
