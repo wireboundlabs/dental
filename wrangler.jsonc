@@ -21,6 +21,12 @@
       "migrations_dir": "migrations"
     },
   ],
+  "routes": [
+    {
+      "pattern": "discovery.trywirebound.com",
+      "custom_domain": true
+    }
+  ],
   // Platform-level guard: the Worker can only email this address. Set it to your verified address.
   "send_email": [
     {
@@ -36,5 +42,6 @@
     "CLAUDE_MODEL": "claude-haiku-4-5",
     // Sender on a domain verified in Cloudflare Email Service
     "DIGEST_FROM": "russel@trywirebound.com"
-  }
+  },
+  "workers_dev": false,
 }
