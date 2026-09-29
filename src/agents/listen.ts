@@ -11,6 +11,7 @@ export interface ListenSummary {
   leads: number;
   skippedMalformed: number;
   stoppedByBudget: boolean;
+  sourceErrors: number;
 }
 
 const REDACTED_EXCERPT = "[excerpt withheld: may contain patient details]";
@@ -32,14 +33,23 @@ export async function runListen(
   fetchFn: typeof fetch = fetch,
   threshold: number = QUALIFY_THRESHOLD,
 ): Promise<ListenSummary> {
-  const summary: ListenSummary = { seen: 0, scored: 0, leads: 0, skippedMalformed: 0, stoppedByBudget: false };
+  const summary: ListenSummary = { seen: 0, scored: 0, leads: 0, skippedMalformed: 0, stoppedByBudget: false, sourceErrors: 0 };
   let budgetLeft = MAX_ITEMS_PER_RUN;
 
   for (const source of sources) {
     if (summary.stoppedByBudget || budgetLeft <= 0) break;
     const cursorRaw = await getCursor(env.DB, source.key);
     const since = cursorRaw === null ? null : Number(cursorRaw);
-    const items = (await source.fetchRecent(since)).sort((a, b) => a.createdUtc - b.createdUtc);
+    let fetched;
+    try {
+      fetched = await source.fetchRecent(since);
+    } catch (err) {
+      // One broken source (bad credentials, quota) must not stop the others.
+      summary.sourceErrors++;
+      console.error(`Source ${source.key} failed: ${err instanceof Error ? err.message : String(err)}`);
+      continue;
+    }
+    const items = fetched.sort((a, b) => a.createdUtc - b.createdUtc);
     let maxCreated = since ?? 0;
     let fullyProcessed = true;
 

@@ -14,6 +14,7 @@ Cloudflare Workers project (TypeScript, Wrangler, D1, Cron Triggers). Finds inde
 
 ## Architecture
 - `src/index.ts`: `fetch` handler (dashboard) and `scheduled` handler that routes by cron expression: every 3 hours runs listen then draft; daily 13:00 UTC runs the digest.
+- `src/sources/`: read-only sources behind the `Source` interface: Reddit (needs Reddit approval) and YouTube Data API comments. A source is enabled only if its secrets are set (`buildSources` in `src/index.ts`). A failing source is logged and skipped; it never stops the others. YouTube quota is 10,000 units/day free; see the math in `src/config.ts`.
 - `src/agents/listen.ts`: pull items from sources, dedupe, score with Haiku, store qualified leads.
 - `src/agents/draft.ts`: draft replies/emails for new leads, stored as `pending`.
 - `src/claude/`: Messages API wrapper plus pricing. `src/budget.ts`: spend guard.
@@ -35,7 +36,7 @@ Cloudflare Workers project (TypeScript, Wrangler, D1, Cron Triggers). Finds inde
 1. `npx wrangler d1 create customer-discovery`, then paste the `database_id` into `wrangler.jsonc`.
 2. Edit `wrangler.jsonc`: set `send_email[0].allowed_destination_addresses` to the owner's verified address, and `DIGEST_FROM` to a sender on a domain verified in Cloudflare Email Service.
 3. `npm run db:migrate:remote`
-4. Secrets, one at a time (prompted, never on the command line or in files): `npx wrangler secret put ANTHROPIC_API_KEY`, `REDDIT_CLIENT_ID`, `REDDIT_CLIENT_SECRET`, `OWNER_EMAIL`, `ACCESS_AUD`, `ACCESS_TEAM_DOMAIN` (like `yourteam.cloudflareaccess.com`).
+4. Secrets, one at a time (prompted, never on the command line or in files): `npx wrangler secret put ANTHROPIC_API_KEY`, `OWNER_EMAIL`, and whichever sources you use: `YOUTUBE_API_KEY` and/or `REDDIT_CLIENT_ID` + `REDDIT_CLIENT_SECRET`, `ACCESS_AUD`, `ACCESS_TEAM_DOMAIN` (like `yourteam.cloudflareaccess.com`).
 5. `npm run deploy`, then in Zero Trust create a self-hosted Access application for the Worker's hostname with a policy allowing only the owner's email. Copy its AUD tag into the `ACCESS_AUD` secret.
 6. Do not set `ACCESS_DEV_BYPASS` in production. For local dev, copy `.dev.vars.example` to `.dev.vars` (gitignored).
 

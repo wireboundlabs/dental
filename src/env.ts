@@ -12,8 +12,10 @@ export interface Env {
   DIGEST_FROM: string;
   // Secrets (wrangler secret put)
   ANTHROPIC_API_KEY: string;
-  REDDIT_CLIENT_ID: string;
-  REDDIT_CLIENT_SECRET: string;
+  // Each source is enabled only if its credentials are set.
+  REDDIT_CLIENT_ID?: string;
+  REDDIT_CLIENT_SECRET?: string;
+  YOUTUBE_API_KEY?: string;
   ACCESS_AUD: string;
   ACCESS_TEAM_DOMAIN: string;
   OWNER_EMAIL: string;

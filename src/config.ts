@@ -14,6 +14,20 @@ export const BROAD_SUBREDDIT_KEYWORDS: Record<string, string[]> = {
   smallbusiness: ["dental", "dentist", "dds"],
 };
 
+/**
+ * YouTube search queries used to find videos whose comments we read.
+ * Quota (10,000 units/day free): each query costs 100 (search) + 1 per video per run.
+ * 4 queries x (100 + 5 videos) x 8 runs/day = ~3,400 units/day.
+ */
+export const YOUTUBE_QUERIES = [
+  "dental front desk insurance verification",
+  "dental practice management software review",
+  "Open Dental tutorial",
+  "Dentrix vs Eaglesoft",
+];
+export const YOUTUBE_VIDEOS_PER_QUERY = 5;
+export const YOUTUBE_COMMENTS_PER_VIDEO = 50;
+
 /** Minimum relevance (0-1) for an item to become a lead. */
 export const QUALIFY_THRESHOLD = 0.7;
 
