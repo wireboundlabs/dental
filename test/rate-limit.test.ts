@@ -18,9 +18,11 @@ function memoryStore(): KeyValueStore & { data: Map<string, string> } {
 
 function ytFetch(quota?: { status: number; reason: string }) {
   const paths: string[] = [];
+  const orders: string[] = [];
   const fn = (async (url: string) => {
     const u = new URL(url);
     paths.push(u.pathname.split("/").pop()!);
+    if (u.pathname.endsWith("/search")) orders.push(u.searchParams.get("order")!);
     if (quota) {
       return new Response(JSON.stringify({ error: { errors: [{ reason: quota.reason }] } }), { status: quota.status });
     }
@@ -29,7 +31,7 @@ function ytFetch(quota?: { status: number; reason: string }) {
     }
     return new Response(JSON.stringify({ items: [] }));
   }) as unknown as typeof fetch;
-  return { fn, paths };
+  return { fn, paths, orders };
 }
 
 describe("backoffFromHeaders", () => {
@@ -42,14 +44,14 @@ describe("backoffFromHeaders", () => {
 });
 
 describe("YouTube search cache", () => {
-  it("searches once, then reuses the cached videos for later runs", async () => {
+  it("searches (relevance + date) once, then reuses the cached videos for later runs", async () => {
     const { fn, paths } = ytFetch();
     const cache = memoryStore();
     const src = new YouTubeSource("q", "k", fn, cache);
     await src.fetchRecent(null);
     await src.fetchRecent(null);
     await src.fetchRecent(null);
-    expect(paths.filter((p) => p === "search")).toHaveLength(1);
+    expect(paths.filter((p) => p === "search")).toHaveLength(2);
     expect(paths.filter((p) => p === "commentThreads")).toHaveLength(3);
   });
 
@@ -61,7 +63,7 @@ describe("YouTube search cache", () => {
     await src.fetchRecent(null);
     cache.data.set(`yt-search:${src.key}`, "not json");
     await src.fetchRecent(null);
-    expect(paths.filter((p) => p === "search")).toHaveLength(2);
+    expect(paths.filter((p) => p === "search")).toHaveLength(3); // relevance x2, date x1 (its cache is still fresh)
   });
 
   it("works without a cache", async () => {
@@ -69,7 +71,23 @@ describe("YouTube search cache", () => {
     const src = new YouTubeSource("q", "k", fn);
     await src.fetchRecent(null);
     await src.fetchRecent(null);
-    expect(paths.filter((p) => p === "search")).toHaveLength(2);
+    expect(paths.filter((p) => p === "search")).toHaveLength(4);
+  });
+
+  it("runs one relevance and one date-ordered search, and reads each video once", async () => {
+    const { fn, paths, orders } = ytFetch();
+    await new YouTubeSource("q", "k", fn).fetchRecent(null);
+    expect(orders.sort()).toEqual(["date", "relevance"]);
+    // both searches return the same video; it is only read once
+    expect(paths.filter((p) => p === "commentThreads")).toHaveLength(1);
+  });
+
+  it("caches the date search separately from the relevance search", async () => {
+    const { fn } = ytFetch();
+    const cache = memoryStore();
+    const src = new YouTubeSource("q", "k", fn, cache);
+    await src.fetchRecent(null);
+    expect([...cache.data.keys()].sort()).toEqual([`yt-search-new:${src.key}`, `yt-search:${src.key}`]);
   });
 });
 

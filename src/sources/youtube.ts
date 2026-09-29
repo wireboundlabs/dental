@@ -1,6 +1,8 @@
 import {
   MIN_TEXT_LENGTH,
   YOUTUBE_COMMENTS_PER_VIDEO,
+  YOUTUBE_NEW_SEARCH_CACHE_HOURS,
+  YOUTUBE_NEW_VIDEOS_PER_QUERY,
   YOUTUBE_SEARCH_CACHE_HOURS,
   YOUTUBE_VIDEOS_PER_QUERY,
 } from "../config";
@@ -91,10 +93,13 @@ export class YouTubeSource implements Source {
     return (await res.json()) as T;
   }
 
-  /** The search costs 100 quota units, so its results are cached; comment reads (1 unit each) are not. */
-  private async findVideos(): Promise<Video[]> {
-    const cacheKey = `yt-search:${this.key}`;
-    const ttlMs = YOUTUBE_SEARCH_CACHE_HOURS * 3600 * 1000;
+  /**
+   * A search costs 100 quota units, so results are cached; comment reads (1 unit each) are not.
+   * "relevance" gives the stable best matches (cached long); "date" gives the newest uploads (cached short).
+   */
+  private async search(order: "relevance" | "date", count: number, ttlHours: number): Promise<Video[]> {
+    const cacheKey = order === "relevance" ? `yt-search:${this.key}` : `yt-search-new:${this.key}`;
+    const ttlMs = ttlHours * 3600 * 1000;
     if (this.cache) {
       try {
         const cached = JSON.parse((await this.cache.get(cacheKey)) ?? "null") as { at: number; videos: Video[] } | null;
@@ -107,7 +112,8 @@ export class YouTubeSource implements Source {
       part: "snippet",
       type: "video",
       q: this.query,
-      maxResults: String(YOUTUBE_VIDEOS_PER_QUERY),
+      order,
+      maxResults: String(count),
       relevanceLanguage: "en",
     });
     const videos = (search.items ?? []).flatMap((i) =>
@@ -115,6 +121,13 @@ export class YouTubeSource implements Source {
     );
     if (this.cache && videos.length > 0) await this.cache.set(cacheKey, JSON.stringify({ at: Date.now(), videos }));
     return videos;
+  }
+
+  private async findVideos(): Promise<Video[]> {
+    const best = await this.search("relevance", YOUTUBE_VIDEOS_PER_QUERY, YOUTUBE_SEARCH_CACHE_HOURS);
+    const newest = await this.search("date", YOUTUBE_NEW_VIDEOS_PER_QUERY, YOUTUBE_NEW_SEARCH_CACHE_HOURS);
+    const seen = new Set<string>();
+    return [...best, ...newest].filter((v) => !seen.has(v.id) && !!seen.add(v.id));
   }
 
   async fetchRecent(sinceUtc: number | null): Promise<SourceItem[]> {
