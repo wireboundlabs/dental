@@ -167,3 +167,23 @@ describe("runListen / runDraft under rate limits", () => {
     expect(out).toEqual({ drafted: 0, stoppedByBudget: false, stoppedByRateLimit: true });
   });
 });
+
+describe("fetch invocation", () => {
+  // The Workers runtime throws "Illegal invocation" if fetch is called with any `this` but the global.
+  function strictFetch(body: unknown) {
+    return function (this: unknown): Promise<Response> {
+      if (this !== undefined && this !== globalThis) throw new TypeError("Illegal invocation");
+      return Promise.resolve(new Response(JSON.stringify(body)));
+    } as unknown as typeof fetch;
+  }
+
+  it("YouTube source calls fetch without binding it to the source", async () => {
+    const src = new YouTubeSource("q", "k", strictFetch({ items: [] }));
+    await expect(src.fetchRecent(null)).resolves.toEqual([]);
+  });
+
+  it("Reddit source calls fetch without binding it to the source", async () => {
+    const src = new RedditSource("dentistry", "id", "secret", strictFetch({ access_token: "t", data: { children: [] } }));
+    await expect(src.fetchRecent(null)).resolves.toEqual([]);
+  });
+});
