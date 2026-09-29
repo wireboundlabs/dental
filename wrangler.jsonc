@@ -43,5 +43,9 @@
     // Sender on a domain verified in Cloudflare Email Service
     "DIGEST_FROM": "russel@trywirebound.com"
   },
+  // Persist console.log output and invocation logs so cron runs can be inspected after the fact.
+  "observability": {
+    "enabled": true
+  },
   "workers_dev": false,
 }
