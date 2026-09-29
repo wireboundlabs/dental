@@ -3,28 +3,38 @@
   "name": "customer-discovery",
   "main": "src/index.ts",
   "compatibility_date": "2025-09-01",
-  "compatibility_flags": ["nodejs_compat"],
+  "compatibility_flags": [
+    "nodejs_compat"
+  ],
   "triggers": {
-    "crons": ["0 */3 * * *", "0 13 * * *"]
+    "crons": [
+      "0 */3 * * *",
+      "0 13 * * *"
+    ]
   },
   "d1_databases": [
     {
       "binding": "DB",
       "database_name": "customer-discovery",
       // Replace after `wrangler d1 create customer-discovery`
-      "database_id": "00000000-0000-0000-0000-000000000000",
+      "database_id": "1a17a6a7-7874-4de1-94b7-9c69454ec6af",
       "migrations_dir": "migrations"
-    }
+    },
   ],
   // Platform-level guard: the Worker can only email this address. Set it to your verified address.
   "send_email": [
-    { "name": "EMAIL", "allowed_destination_addresses": ["you@example.com"] }
+    {
+      "name": "EMAIL",
+      "allowed_destination_addresses": [
+        "russel@trywirebound.com"
+      ]
+    }
   ],
   // Non-secret config only. Secrets go through `wrangler secret put`.
   "vars": {
     "DAILY_BUDGET_USD": "3",
     "CLAUDE_MODEL": "claude-haiku-4-5",
     // Sender on a domain verified in Cloudflare Email Service
-    "DIGEST_FROM": "digest@example.com"
+    "DIGEST_FROM": "russel@trywirebound.com"
   }
 }
