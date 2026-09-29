@@ -1,7 +1,19 @@
-import { MIN_TEXT_LENGTH, YOUTUBE_COMMENTS_PER_VIDEO, YOUTUBE_VIDEOS_PER_QUERY } from "../config";
-import type { Source, SourceItem } from "./types";
+import {
+  MIN_TEXT_LENGTH,
+  YOUTUBE_COMMENTS_PER_VIDEO,
+  YOUTUBE_SEARCH_CACHE_HOURS,
+  YOUTUBE_VIDEOS_PER_QUERY,
+} from "../config";
+import { RateLimitError, backoffFromHeaders } from "../rate-limit";
+import type { KeyValueStore, Source, SourceItem } from "./types";
 
 const API = "https://www.googleapis.com/youtube/v3";
+
+/** 403 reasons that mean "out of quota / too fast" rather than "bad request or bad key". */
+const RATE_LIMIT_REASONS = new Set(["quotaExceeded", "dailyLimitExceeded", "rateLimitExceeded", "userRateLimitExceeded"]);
+
+/** Rejected calls cost no quota, so retrying hourly is cheap; the daily quota resets at midnight Pacific. */
+const QUOTA_BACKOFF_SEC = 3600;
 
 class YouTubeApiError extends Error {
   constructor(
@@ -10,6 +22,11 @@ class YouTubeApiError extends Error {
   ) {
     super(`YouTube API error ${status} (${reason})`);
   }
+}
+
+interface Video {
+  id: string;
+  title: string;
 }
 
 interface SearchResponse {
@@ -40,6 +57,7 @@ export class YouTubeSource implements Source {
     private readonly query: string,
     private readonly apiKey: string,
     private readonly fetchFn: typeof fetch = fetch,
+    private readonly cache: KeyValueStore | null = null,
   ) {
     this.key = `youtube:${query
       .toLowerCase()
@@ -61,12 +79,27 @@ export class YouTubeSource implements Source {
       } catch {
         // non-JSON error body
       }
-      throw new YouTubeApiError(res.status, reason);
+      const err = new YouTubeApiError(res.status, reason);
+      if (res.status === 429 || (res.status === 403 && RATE_LIMIT_REASONS.has(reason))) {
+        throw new RateLimitError(err.message, backoffFromHeaders(res.headers, QUOTA_BACKOFF_SEC));
+      }
+      throw err;
     }
     return (await res.json()) as T;
   }
 
-  async fetchRecent(sinceUtc: number | null): Promise<SourceItem[]> {
+  /** The search costs 100 quota units, so its results are cached; comment reads (1 unit each) are not. */
+  private async findVideos(): Promise<Video[]> {
+    const cacheKey = `yt-search:${this.key}`;
+    const ttlMs = YOUTUBE_SEARCH_CACHE_HOURS * 3600 * 1000;
+    if (this.cache) {
+      try {
+        const cached = JSON.parse((await this.cache.get(cacheKey)) ?? "null") as { at: number; videos: Video[] } | null;
+        if (cached && Date.now() - cached.at < ttlMs && cached.videos.length > 0) return cached.videos;
+      } catch {
+        // corrupt cache entry: fall through to a fresh search
+      }
+    }
     const search = await this.get<SearchResponse>("search", {
       part: "snippet",
       type: "video",
@@ -77,6 +110,12 @@ export class YouTubeSource implements Source {
     const videos = (search.items ?? []).flatMap((i) =>
       i.id?.videoId ? [{ id: i.id.videoId, title: i.snippet?.title ?? "" }] : [],
     );
+    if (this.cache && videos.length > 0) await this.cache.set(cacheKey, JSON.stringify({ at: Date.now(), videos }));
+    return videos;
+  }
+
+  async fetchRecent(sinceUtc: number | null): Promise<SourceItem[]> {
+    const videos = await this.findVideos();
 
     const items: SourceItem[] = [];
     for (const video of videos) {
@@ -90,8 +129,8 @@ export class YouTubeSource implements Source {
           textFormat: "plainText",
         });
       } catch (err) {
-        // Comments turned off on a video is normal; anything else (quota, bad key) is not.
-        if (err instanceof YouTubeApiError && err.reason === "commentsDisabled") continue;
+        // Comments off, or a cached video since deleted, is normal; anything else (bad key) is not.
+        if (err instanceof YouTubeApiError && (err.reason === "commentsDisabled" || err.status === 404)) continue;
         throw err;
       }
       for (const t of threads.items ?? []) {

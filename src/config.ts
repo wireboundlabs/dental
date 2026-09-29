@@ -17,7 +17,9 @@ export const BROAD_SUBREDDIT_KEYWORDS: Record<string, string[]> = {
 /**
  * YouTube search queries used to find videos whose comments we read.
  * Quota (10,000 units/day free): each query costs 100 (search) + 1 per video per run.
- * 4 queries x (100 + 5 videos) x 8 runs/day = ~3,400 units/day.
+ * The search (100 units) is cached for YOUTUBE_SEARCH_CACHE_HOURS, so most runs only pay the 1-unit comment reads.
+ * At the 5-minute cron (288 runs/day): comments 4 queries x 5 videos x 288 = 5,760, plus searches
+ * 4 x 100 x (24 / 6) = 1,600, so ~7,400 units/day. If quota is still hit, the source backs off for an hour.
  */
 export const YOUTUBE_QUERIES = [
   "dental front desk insurance verification",
@@ -26,13 +28,14 @@ export const YOUTUBE_QUERIES = [
   "Dentrix vs Eaglesoft",
 ];
 export const YOUTUBE_VIDEOS_PER_QUERY = 5;
-export const YOUTUBE_COMMENTS_PER_VIDEO = 50;
+export const YOUTUBE_SEARCH_CACHE_HOURS = 6;
+export const YOUTUBE_COMMENTS_PER_VIDEO = 100;
 
 /** Minimum relevance (0-1) for an item to become a lead. */
 export const QUALIFY_THRESHOLD = 0.7;
 
 /** Max items scored per cron run, to bound spend. */
-export const MAX_ITEMS_PER_RUN = 60;
+export const MAX_ITEMS_PER_RUN = 150;
 
 /** Max leads drafted per cron run. */
 export const MAX_DRAFTS_PER_RUN = 10;

@@ -2,6 +2,7 @@ import { BudgetExceededError } from "../budget";
 import { EXCERPT_MAX_CHARS, MAX_ITEMS_PER_RUN, MIN_TEXT_LENGTH, QUALIFY_THRESHOLD } from "../config";
 import { getCursor, insertItemIfNew, insertLead, itemExists, setCursor } from "../db/queries";
 import type { Env } from "../env";
+import { RateLimitError } from "../rate-limit";
 import type { Source } from "../sources/types";
 import { qualifies, scoreItem } from "./score";
 
@@ -11,7 +12,10 @@ export interface ListenSummary {
   leads: number;
   skippedMalformed: number;
   stoppedByBudget: boolean;
+  stoppedByRateLimit: boolean;
   sourceErrors: number;
+  /** Sources skipped because an earlier run hit their rate limit. */
+  sourcesBackedOff: number;
 }
 
 const REDACTED_EXCERPT = "[excerpt withheld: may contain patient details]";
@@ -33,17 +37,27 @@ export async function runListen(
   fetchFn: typeof fetch = fetch,
   threshold: number = QUALIFY_THRESHOLD,
 ): Promise<ListenSummary> {
-  const summary: ListenSummary = { seen: 0, scored: 0, leads: 0, skippedMalformed: 0, stoppedByBudget: false, sourceErrors: 0 };
+  const summary: ListenSummary = { seen: 0, scored: 0, leads: 0, skippedMalformed: 0, stoppedByBudget: false, stoppedByRateLimit: false, sourceErrors: 0, sourcesBackedOff: 0 };
   let budgetLeft = MAX_ITEMS_PER_RUN;
 
   for (const source of sources) {
-    if (summary.stoppedByBudget || budgetLeft <= 0) break;
+    if (summary.stoppedByBudget || summary.stoppedByRateLimit || budgetLeft <= 0) break;
+    const backoffKey = `backoff:${source.key}`;
+    const backoffUntil = Number((await getCursor(env.DB, backoffKey)) ?? 0);
+    if (backoffUntil > now.getTime()) {
+      summary.sourcesBackedOff++;
+      continue;
+    }
     const cursorRaw = await getCursor(env.DB, source.key);
     const since = cursorRaw === null ? null : Number(cursorRaw);
     let fetched;
     try {
       fetched = await source.fetchRecent(since);
     } catch (err) {
+      if (err instanceof RateLimitError) {
+        // Honor the limit: skip this source until the window passes, without touching its cursor.
+        await setCursor(env.DB, backoffKey, String(now.getTime() + err.retryAfterSec * 1000));
+      }
       // One broken source (bad credentials, quota) must not stop the others.
       summary.sourceErrors++;
       console.error(`Source ${source.key} failed: ${err instanceof Error ? err.message : String(err)}`);
@@ -74,6 +88,12 @@ export async function runListen(
       } catch (err) {
         if (err instanceof BudgetExceededError) {
           summary.stoppedByBudget = true;
+          fullyProcessed = false;
+          break;
+        }
+        if (err instanceof RateLimitError) {
+          // Claude is throttling us; stop this run and let the next cron try again.
+          summary.stoppedByRateLimit = true;
           fullyProcessed = false;
           break;
         }

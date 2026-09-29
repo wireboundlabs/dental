@@ -1,6 +1,7 @@
 import { assertWithinBudget, getDailyCap } from "../budget";
 import { recordApiCall, recordCapHit, spentOnDay, utcDay } from "../db/queries";
 import type { Env } from "../env";
+import { RateLimitError, backoffFromHeaders } from "../rate-limit";
 import { costUsd } from "./pricing";
 
 export interface ClaudeRequest {
@@ -48,6 +49,9 @@ export async function callClaude(
       messages: [{ role: "user", content: req.user }],
     }),
   });
+  if (res.status === 429 || res.status === 529) {
+    throw new RateLimitError(`Anthropic API error ${res.status}`, backoffFromHeaders(res.headers, 60));
+  }
   if (!res.ok) {
     throw new Error(`Anthropic API error ${res.status}`);
   }

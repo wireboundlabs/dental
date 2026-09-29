@@ -3,10 +3,12 @@ import { callClaude } from "../claude/client";
 import { MAX_DRAFTS_PER_RUN, NICHE, VOICE_GUIDE } from "../config";
 import { insertDraft, listLeadsNeedingDraft } from "../db/queries";
 import type { Env } from "../env";
+import { RateLimitError } from "../rate-limit";
 
 export interface DraftSummary {
   drafted: number;
   stoppedByBudget: boolean;
+  stoppedByRateLimit: boolean;
 }
 
 export const DRAFT_SYSTEM = `You help a founder do customer discovery with ${NICHE}. You write a suggested reply that a HUMAN will review, edit and post themselves.
@@ -37,7 +39,7 @@ export async function runDraft(
   fetchFn: typeof fetch = fetch,
 ): Promise<DraftSummary> {
   const leads = await listLeadsNeedingDraft(env.DB, MAX_DRAFTS_PER_RUN);
-  const summary: DraftSummary = { drafted: 0, stoppedByBudget: false };
+  const summary: DraftSummary = { drafted: 0, stoppedByBudget: false, stoppedByRateLimit: false };
 
   for (const lead of leads) {
     try {
@@ -61,6 +63,10 @@ export async function runDraft(
     } catch (err) {
       if (err instanceof BudgetExceededError) {
         summary.stoppedByBudget = true;
+        break;
+      }
+      if (err instanceof RateLimitError) {
+        summary.stoppedByRateLimit = true;
         break;
       }
       throw err;

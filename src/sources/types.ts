@@ -8,6 +8,12 @@ export interface SourceItem {
   createdUtc: number;
 }
 
+/** Small string store a source can use to remember things between runs (backed by D1 cursors). */
+export interface KeyValueStore {
+  get(key: string): Promise<string | null>;
+  set(key: string, value: string): Promise<void>;
+}
+
 /** A read-only source of public posts/comments. Implementations must never write anywhere. */
 export interface Source {
   /** Stable key, used for cursors. */
