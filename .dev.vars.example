@@ -1,0 +1,9 @@
+# Copy to .dev.vars (gitignored). Placeholders only; never commit real values.
+ANTHROPIC_API_KEY=replace-me
+REDDIT_CLIENT_ID=replace-me
+REDDIT_CLIENT_SECRET=replace-me
+OWNER_EMAIL=you@example.com
+ACCESS_AUD=replace-me
+ACCESS_TEAM_DOMAIN=yourteam.cloudflareaccess.com
+# Local dev only: lets you view the dashboard on localhost without Access.
+ACCESS_DEV_BYPASS=1
