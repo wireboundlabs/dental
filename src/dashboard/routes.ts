@@ -12,7 +12,9 @@ const SECURITY_HEADERS = {
   "content-security-policy":
     "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'",
   "x-content-type-options": "nosniff",
-  "referrer-policy": "no-referrer",
+  // Not "no-referrer": that makes browsers send "Origin: null" on same-site form POSTs, which the CSRF check rejects.
+  // Cross-site navigations still send no referrer. Outbound links also carry rel="noreferrer".
+  "referrer-policy": "same-origin",
   "cache-control": "no-store",
 };
 

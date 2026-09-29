@@ -151,6 +151,8 @@ describe("dashboard", () => {
     const res = await handleDashboard(req("/", await sign(goodClaims())), denv, now, certsFetch());
     expect(res.status).toBe(200);
     expect(res.headers.get("content-security-policy")).toContain("default-src 'none'");
+    // "no-referrer" would make browsers send "Origin: null" on same-site form POSTs and break every button.
+    expect(res.headers.get("referrer-policy")).toBe("same-origin");
     const html = await res.text();
     expect(html).toContain("How do you handle this today?");
     expect(html).toContain("&lt;script&gt;alert(1)&lt;/script&gt;");
