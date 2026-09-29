@@ -29,13 +29,16 @@ interface RedditListing {
 export class RedditSource implements Source {
   readonly key: string;
   private token: string | null = null;
+  private readonly fetchFn: typeof fetch;
 
   constructor(
     private readonly subreddit: string,
     private readonly clientId: string,
     private readonly clientSecret: string,
-    private readonly fetchFn: typeof fetch = fetch,
+    fetchFn: typeof fetch = fetch,
   ) {
+    // Call fetch as a plain function: invoking the global as a method of this class throws "Illegal invocation" on Workers.
+    this.fetchFn = (input, init) => fetchFn(input, init);
     this.key = `reddit:${subreddit}`;
   }
 

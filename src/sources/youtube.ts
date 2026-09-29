@@ -52,13 +52,16 @@ interface CommentThreadsResponse {
  */
 export class YouTubeSource implements Source {
   readonly key: string;
+  private readonly fetchFn: typeof fetch;
 
   constructor(
     private readonly query: string,
     private readonly apiKey: string,
-    private readonly fetchFn: typeof fetch = fetch,
+    fetchFn: typeof fetch = fetch,
     private readonly cache: KeyValueStore | null = null,
   ) {
+    // Call fetch as a plain function: invoking the global as a method of this class throws "Illegal invocation" on Workers.
+    this.fetchFn = (input, init) => fetchFn(input, init);
     this.key = `youtube:${query
       .toLowerCase()
       .replace(/[^a-z0-9]+/g, "-")
