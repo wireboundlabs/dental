@@ -35,6 +35,6 @@
     "DAILY_BUDGET_USD": "3",
     "CLAUDE_MODEL": "claude-haiku-4-5",
     // Sender on a domain verified in Cloudflare Email Service
-    "DIGEST_FROM": "digest@example.com"
+    "DIGEST_FROM": "russel@trywirebound.com"
   }
 }
