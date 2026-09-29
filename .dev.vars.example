@@ -7,3 +7,4 @@ ACCESS_AUD=replace-me
 ACCESS_TEAM_DOMAIN=yourteam.cloudflareaccess.com
 # Local dev only: lets you view the dashboard on localhost without Access.
 ACCESS_DEV_BYPASS=1
+YOUTUBE_API_KEY=replace-me
