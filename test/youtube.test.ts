@@ -1,7 +1,7 @@
 import { env } from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
 import { runListen } from "../src/agents/listen";
-import { buildSources } from "../src/index";
+import { buildSources } from "../src/scheduler";
 import type { Env } from "../src/env";
 import { YouTubeSource } from "../src/sources/youtube";
 import type { Source } from "../src/sources/types";

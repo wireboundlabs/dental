@@ -13,8 +13,8 @@ Cloudflare Workers project (TypeScript, Wrangler, D1, Cron Triggers). Finds inde
 8. Drafts are curious and non-pitching, written in the owner's voice (see `src/config.ts`). No links, no product mentions.
 
 ## Architecture
-- `src/index.ts`: `fetch` handler (dashboard) and `scheduled` handler that routes by cron expression: every 3 hours runs listen then draft; daily 13:00 UTC runs the digest.
-- `src/sources/`: read-only sources behind the `Source` interface: Reddit (needs Reddit approval) and YouTube Data API comments. A source is enabled only if its secrets are set (`buildSources` in `src/index.ts`). A failing source is logged and skipped; it never stops the others. YouTube quota is 10,000 units/day free; see the math in `src/config.ts`.
+- `src/index.ts`: entry point (default export only); `src/scheduler.ts` holds the cron routing. `fetch` handler (dashboard) and `scheduled` handler that routes by cron expression: every 3 hours runs listen then draft; daily 13:00 UTC runs the digest.
+- `src/sources/`: read-only sources behind the `Source` interface: Reddit (needs Reddit approval) and YouTube Data API comments. A source is enabled only if its secrets are set (`buildSources` in `src/scheduler.ts`). A failing source is logged and skipped; it never stops the others. YouTube quota is 10,000 units/day free; see the math in `src/config.ts`.
 - `src/agents/listen.ts`: pull items from sources, dedupe, score with Haiku, store qualified leads.
 - `src/agents/draft.ts`: draft replies/emails for new leads, stored as `pending`.
 - `src/claude/`: Messages API wrapper plus pricing. `src/budget.ts`: spend guard.

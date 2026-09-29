@@ -1,7 +1,7 @@
 import { env } from "cloudflare:test";
 import { SELF } from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
-import { CRON_AGENTS, CRON_DIGEST, runScheduled } from "../src/index";
+import { CRON_AGENTS, CRON_DIGEST, runScheduled } from "../src/scheduler";
 import { listDraftsByStatus } from "../src/db/queries";
 import type { Env } from "../src/env";
 import type { Source } from "../src/sources/types";
