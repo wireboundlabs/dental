@@ -43,7 +43,7 @@ Reference the risk levels defined in `.cursor/rules/risk-and-merge.mdc` and `AGE
 - Tiny, obvious bugfixes (e.g., `if (x)` → `if (x != null)`) with limited scope
 - Copy/wording tweaks in config that don't affect behavior
 
-#### Medium Risk (Requires Human Review)
+#### Medium Risk (Auto-Merge After CI + Post-Merge Review Flag)
 - **Source logic:** Changes to `src/sources/reddit.ts`, `src/sources/youtube.ts`, or `src/sources/base.ts`
 - **Agent logic:** Changes to `src/agents/listen.ts` or `src/agents/draft.ts`
 - **Prompts:** Changes to scoring or draft prompts
@@ -75,6 +75,8 @@ Reference the risk levels defined in `.cursor/rules/risk-and-merge.mdc` and `AGE
 
 **If the PR touches multiple areas with different risk levels, use the highest risk level.**
 
+**If uncertain:** Default to **medium** (mergeable with post-merge flag), NOT high — unless it touches CLAUDE.md hard-rule territory (auth, secrets, auto-posting, budget, destructive migrations), which always stays high.
+
 ### 3. Document the Risk in the PR
 
 Update or add a `Risk:` section to the PR body:
@@ -103,32 +105,58 @@ ManagePullRequest({
 
 ### 4. Make the Merge Decision
 
-**Auto-merge only if ALL of the following are true:**
-- Risk is **low**
-- CI is green (all checks passed)
-- A human explicitly asked you to merge, OR standing low-risk auto-merge policy applies
+**Standing policy: Agents SHOULD auto-merge low and medium risk PRs once CI is green.** Do not wait for a human "merge it" message.
 
-**Never auto-merge if:**
-- Risk is medium or high
-- CI is failing
-- No explicit merge request was made
+#### For Low Risk PRs:
 
-**If asked to merge a medium or high risk PR:**
-- Refuse the merge
-- Explain the risk gate clearly
-- Provide the PR link and risk justification
+- Wait for CI to pass
+- Auto-merge immediately
+- No special flags or labels needed
 
-Example refusal:
+#### For Medium Risk PRs:
 
-> This PR is classified as **medium risk** because it modifies agent scoring logic in `src/agents/listen.ts`. Per repo policy in `AGENTS.md` and `.cursor/rules/risk-and-merge.mdc`, medium and high risk PRs require human review and cannot be auto-merged.
+Before or when merging:
+
+1. **Add the `needs-post-merge-review` label:**
+   ```bash
+   # Create label if it doesn't exist
+   gh api repos/:owner/:repo/labels -f name='needs-post-merge-review' \
+     -f color='FFA500' -f description='Merged without pre-merge human review' 2>/dev/null || true
+   
+   # Add to PR
+   gh pr edit <pr-number> --add-label needs-post-merge-review
+   ```
+
+2. **Post the comment:**
+   ```bash
+   gh pr comment <pr-number> --body "Post-merge review: Risk medium — agents merged without pre-merge human review. Please skim when you can."
+   ```
+
+3. **Merge** once CI is green and label/comment are in place
+
+The owner will review medium-risk changes at their convenience.
+
+#### For High Risk PRs:
+
+- **NEVER auto-merge**
+- Leave open for mandatory human review
+- If asked to merge a high-risk PR, refuse and explain
+
+Example refusal for high risk:
+
+> This PR is classified as **high risk** because it modifies budget enforcement logic in `src/budget.ts` (touches CLAUDE.md hard rule). Per repo policy in `AGENTS.md` and `.cursor/rules/risk-and-merge.mdc`, high risk PRs require human review and cannot be auto-merged.
 >
 > PR: [link]
 >
 > Please review the changes and merge manually if appropriate.
 
+**Never auto-merge if CI is failing** (applies to all risk levels).
+
 ### 5. If Risk is Unclear, Default to Medium
 
-When in doubt, treat the change as **medium risk** (requires human review). It's safer to over-classify than to auto-merge something risky.
+When in doubt, treat the change as **medium risk** (mergeable with post-merge flag), NOT high. It's the right balance — ship it but flag it for review.
+
+**Exception:** If the uncertainty involves CLAUDE.md hard-rule territory (auth, secrets, auto-posting, budget, destructive migrations), escalate to **high** risk.
 
 ## Reference Files
 
@@ -143,23 +171,26 @@ When in doubt, treat the change as **medium risk** (requires human review). It's
 1. Fetch the PR branch and read the diff
 2. Classify the risk using the criteria above
 3. Check CI status
-4. If low risk + CI green + explicit request: merge
-5. If medium/high risk: refuse and explain
+4. If low risk + CI green: merge immediately
+5. If medium risk + CI green: add label + comment, then merge
+6. If high risk: refuse and explain (never auto-merge)
 
 ### Scenario: Creating a new PR for your changes
 
 1. Review your own diff before opening the PR
 2. Classify the risk
 3. Include `Risk: [level]` in the PR body with justification
-4. If medium or high risk, open as a **draft** PR
-5. If low risk, open as a regular PR (draft is fine too)
+4. If high risk, open as a **draft** PR (mandatory human review)
+5. If low or medium risk, open as a regular PR (not draft)
+6. Follow the standing auto-merge policy after CI passes
 
 ### Scenario: Reviewing someone else's PR
 
 1. Read the diff (don't trust their risk claim)
 2. Reclassify if needed
 3. Comment on the PR with your risk assessment
-4. If they claimed low but you find medium/high, explain why and ask them to update
+4. If they claimed low but you find medium, add label/comment and merge if CI is green
+5. If they claimed low but you find high, explain why and do NOT merge
 
 ## Testing Requirements
 
