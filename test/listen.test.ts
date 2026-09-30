@@ -192,3 +192,22 @@ describe("RedditSource", () => {
     await expect(new RedditSource("dentistry", "id", "s", fn).fetchRecent(null)).rejects.toThrow(/401/);
   });
 });
+
+describe("runListen source rotation", () => {
+  it("visits maxSources per run, round-robin, so every source gets a turn", async () => {
+    await env.DB.prepare("DELETE FROM cursors").run();
+    const visited: string[] = [];
+    const mkSource = (key: string): Source => ({
+      key,
+      fetchRecent: async () => {
+        visited.push(key);
+        return [];
+      },
+    });
+    const sources = ["a", "b", "c", "d", "e"].map(mkSource);
+    const stub = claudeStub(() => "{}");
+    for (let i = 0; i < 4; i++) await runListen(cenv, sources, now, stub.fn, undefined, 2);
+    // runs: a,b | c,d | e,a | b,c
+    expect(visited).toEqual(["a", "b", "c", "d", "e", "a", "b", "c"]);
+  });
+});

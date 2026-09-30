@@ -1,5 +1,5 @@
 import { BudgetExceededError } from "../budget";
-import { EXCERPT_MAX_CHARS, MAX_ITEMS_PER_RUN, MIN_TEXT_LENGTH, QUALIFY_THRESHOLD } from "../config";
+import { EXCERPT_MAX_CHARS, MAX_ITEMS_PER_RUN, MAX_SOURCES_PER_RUN, MIN_TEXT_LENGTH, QUALIFY_THRESHOLD } from "../config";
 import { getCursor, insertItemIfNew, insertLead, itemExists, setCursor } from "../db/queries";
 import type { Env } from "../env";
 import { RateLimitError } from "../rate-limit";
@@ -17,6 +17,8 @@ export interface ListenSummary {
   /** Sources skipped because an earlier run hit their rate limit. */
   sourcesBackedOff: number;
 }
+
+const ROUND_ROBIN_KEY = "rr:listen";
 
 const REDACTED_EXCERPT = "[excerpt withheld: may contain patient details]";
 
@@ -36,12 +38,20 @@ export async function runListen(
   now: Date = new Date(),
   fetchFn: typeof fetch = fetch,
   threshold: number = QUALIFY_THRESHOLD,
+  maxSources: number = MAX_SOURCES_PER_RUN,
 ): Promise<ListenSummary> {
   const summary: ListenSummary = { seen: 0, scored: 0, leads: 0, skippedMalformed: 0, stoppedByBudget: false, stoppedByRateLimit: false, sourceErrors: 0, sourcesBackedOff: 0 };
   let budgetLeft = MAX_ITEMS_PER_RUN;
 
-  for (const source of sources) {
+  // Visit only `maxSources` sources per run, continuing where the last run stopped, so every source gets a turn
+  // without one run making more subrequests than a Worker allows.
+  const start = sources.length ? Number((await getCursor(env.DB, ROUND_ROBIN_KEY)) ?? 0) % sources.length : 0;
+  const turn = [...sources.slice(start), ...sources.slice(0, start)].slice(0, maxSources);
+  let visited = 0;
+
+  for (const source of turn) {
     if (summary.stoppedByBudget || summary.stoppedByRateLimit || budgetLeft <= 0) break;
+    visited++;
     const backoffKey = `backoff:${source.key}`;
     const backoffUntil = Number((await getCursor(env.DB, backoffKey)) ?? 0);
     if (backoffUntil > now.getTime()) {
@@ -132,5 +142,6 @@ export async function runListen(
       await setCursor(env.DB, source.key, String(maxCreated));
     }
   }
+  if (sources.length) await setCursor(env.DB, ROUND_ROBIN_KEY, String((start + visited) % sources.length));
   return summary;
 }
