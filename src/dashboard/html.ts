@@ -66,8 +66,10 @@ function card(d: DraftRow): string {
     editable
       ? `<form method="post" action="/drafts/${d.id}/edit">
       <textarea name="body" id="b${d.id}" rows="6">${esc(body)}</textarea>
-      <div class="row"><button>Save edit</button><button type="button" class="copy" data-target="b${d.id}">Copy</button>${actions.join("")}</div>
-    </form>`
+      <div class="row"><button>Save edit</button><button type="button" class="copy" data-target="b${d.id}">Copy</button></div>
+    </form>
+    <!-- The action forms must not sit inside the edit form: HTML has no nested forms, and the parser would turn the first one into a button on the edit form. -->
+    <div class="row">${actions.join("")}</div>`
       : `<textarea readonly id="b${d.id}" rows="6">${esc(body)}</textarea>
     <div class="row"><button type="button" class="copy" data-target="b${d.id}">Copy</button>${actions.join("")}</div>`
   }

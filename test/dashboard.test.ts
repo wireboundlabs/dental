@@ -260,6 +260,43 @@ describe("dashboard", () => {
     expect((await post(`/drafts/${id}/restore`)).status).toBe(409);
   });
 
+  it("never nests one form inside another on any tab (browsers drop the first nested form, breaking its button)", async () => {
+    const id = await seedDraft();
+    const page = async (status: string) =>
+      (await (await handleDashboard(req(`/?status=${status}`, await sign(goodClaims())), denv, now, certsFetch())).text());
+    const maxDepth = (html: string) => {
+      let depth = 0;
+      let max = 0;
+      for (const m of html.matchAll(/<form\b|<\/form>/g)) {
+        depth += m[0] === "</form>" ? -1 : 1;
+        max = Math.max(max, depth);
+      }
+      return { max, end: depth };
+    };
+    const seen = new Set<string>();
+    const check = async (status: string) => {
+      const html = await page(status);
+      expect(maxDepth(html)).toEqual({ max: 1, end: 0 });
+      for (const m of html.matchAll(/action="(\/drafts\/\d+\/\w+)"/g)) seen.add(m[1]);
+    };
+    await check("pending");
+    await post(`/drafts/${id}/approve`);
+    await check("approved");
+    await post(`/drafts/${id}/reject`);
+    await check("rejected");
+    // every action the UI offers exists as its own form
+    for (const action of ["edit", "approve", "reject", "sent", "restore"]) expect(seen).toContain(`/drafts/${id}/${action}`);
+  });
+
+  it("the Approve button on a pending card is its own form, separate from the edit form", async () => {
+    const id = await seedDraft();
+    const html = await (await handleDashboard(req("/", await sign(goodClaims())), denv, now, certsFetch())).text();
+    const editForm = html.slice(html.indexOf(`action="/drafts/${id}/edit"`), html.indexOf("</form>", html.indexOf(`action="/drafts/${id}/edit"`)));
+    expect(editForm).not.toContain("/approve");
+    expect(editForm).not.toContain("/reject");
+    expect(html).toMatch(new RegExp(`<form method="post" action="/drafts/${id}/approve"><button class="ok">Approve</button></form>`));
+  });
+
   it("the rejected tab offers Restore to pending and Approve; other tabs do not offer Restore", async () => {
     const id = await seedDraft();
     await post(`/drafts/${id}/reject`);
