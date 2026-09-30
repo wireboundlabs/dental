@@ -190,7 +190,13 @@ export class YouTubeSource implements Source {
       order,
       maxResults: String(YOUTUBE_POOL_PAGE_SIZE),
       relevanceLanguage: "en",
+      videoDuration: "medium", // Exclude shorts (<4min); prefer substantive content (4-20min)
     };
+    // For relevance searches, prefer content from the last year unless we're paginating deep
+    if (order === "relevance" && !pageToken) {
+      const oneYearAgo = new Date(now - 365 * DAY_MS);
+      params.publishedAfter = oneYearAgo.toISOString();
+    }
     if (pageToken) params.pageToken = pageToken;
     const search = await this.get<SearchResponse>("search", params);
     const found = (search.items ?? []).flatMap((i) => {
@@ -220,7 +226,7 @@ export class YouTubeSource implements Source {
     return { videos, next };
   }
 
-  /** Refreshes the pools when due (at most two searches) and returns every candidate video. */
+  /** Refreshes the pools when due (at most two searches) and returns every candidate video, prioritized by comment count. */
   private async candidateVideos(now: number): Promise<PoolVideo[]> {
     const bestKey = `yt-pool:${this.key}`;
     const newKey = `yt-new:${this.key}`;
@@ -242,7 +248,10 @@ export class YouTubeSource implements Source {
       fresh = { started: now, at: now, page: 1, next: null, videos: page.videos };
       await this.save(newKey, fresh);
     }
-    return dedupe([...fresh.videos, ...best.videos]);
+    const combined = dedupe([...fresh.videos, ...best.videos]);
+    // Prioritize videos with more comments: they're more likely to have engaged discussions
+    combined.sort((a, b) => b.cc - a.cc);
+    return combined;
   }
 
   private async loadStates(videos: PoolVideo[]): Promise<Map<string, VideoState>> {

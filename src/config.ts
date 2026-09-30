@@ -31,15 +31,15 @@ export const BROAD_SUBREDDIT_KEYWORDS: Record<string, string[]> = {
  * (9 sources, 2 per run); if you slow the cron further, raise MAX_SOURCES_PER_RUN or freshness suffers. If quota is hit, the source backs off for an hour.
  */
 export const YOUTUBE_QUERIES = [
-  "dental front desk insurance verification",
-  "dental practice management software review",
-  "Open Dental tutorial",
-  "Dentrix vs Eaglesoft",
-  "dental office phones front desk overwhelmed",
-  "dental scheduling no-shows cancellations",
-  "dental office manager insurance follow up",
-  "dental practice owner staffing problems",
-  "dental insurance claims billing headaches",
+  '"dental front desk" "insurance verification"',
+  '"dental practice management" software review',
+  '"Open Dental" tutorial',
+  'Dentrix Eaglesoft comparison',
+  '"dental office" "front desk" overwhelmed phones',
+  '"dental scheduling" "no-shows" OR cancellations',
+  '"dental office manager" "insurance" follow-up',
+  '"dental practice owner" staffing OR hiring problems',
+  '"dental insurance" claims billing workflow',
 ];
 /** Results per search page (the API maximum; the cost is the same as asking for 3). */
 export const YOUTUBE_POOL_PAGE_SIZE = 50;
