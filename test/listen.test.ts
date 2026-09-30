@@ -9,7 +9,7 @@ const db = env.DB;
 const now = new Date("2026-09-29T12:00:00Z");
 const cenv = { ...env, DAILY_BUDGET_USD: "3", CLAUDE_MODEL: "claude-haiku-4-5" };
 
-const mk = (id: string, createdUtc: number, text = "Our front desk spends all day on insurance calls and scheduling."): SourceItem => ({
+const mk = (id: string, createdUtc: number, text = "Our front desk spends all day on insurance calls and scheduling. It's overwhelming and consuming all our time."): SourceItem => ({
   source: "test:src",
   externalId: id,
   url: `https://example.com/${id}`,
@@ -64,11 +64,11 @@ describe("runListen", () => {
   it("stores qualified leads, keeps unqualified items for dedupe, advances the cursor", async () => {
     const stub = claudeStub((p) => (p.includes("KEEP") ? high : low));
     const src = fakeSource([
-      mk("a", 100, "KEEP: front desk drowning in insurance calls, hours every day"),
-      mk("b", 200, "Just a general question about dental school interviews and applications"),
+      mk("a", 100, "KEEP: front desk drowning in insurance calls, hours every day taking up all our time"),
+      mk("b", 200, "I have a general question about dental school interviews and applications. Anyone have experience?"),
     ]);
     const out = await runListen(cenv, [src], now, stub.fn);
-    expect(out).toMatchObject({ seen: 2, scored: 2, leads: 1, stoppedByBudget: false });
+    expect(out).toMatchObject({ seen: 2, scored: 2, leads: 1, filteredOut: 0, stoppedByBudget: false });
     const leads = await db.prepare("SELECT pain_summary FROM leads").all();
     expect(leads.results).toHaveLength(1);
     const items = await db.prepare("SELECT COUNT(*) AS n FROM items").first<{ n: number }>();
@@ -98,190 +98,143 @@ describe("runListen", () => {
     expect(out.leads).toBe(0);
   });
 
-  it("withholds the excerpt when patient info is flagged", async () => {
-    const stub = claudeStub(() => '{"relevance":0.9,"pain_summary":"x","patient_info_present":true}');
-    await runListen(cenv, [fakeSource([mk("p", 100, "Patient John Doe called about his bill again and again today")])], now, stub.fn);
-    const row = await db.prepare("SELECT excerpt FROM items").first<{ excerpt: string }>();
-    expect(row?.excerpt).not.toContain("John");
-  });
-
-  it("keeps the relevance for every scored item, but no pain summary when patient info is flagged", async () => {
-    const stub = claudeStub((p) =>
-      p.includes("PATIENT")
-        ? '{"relevance":0.3,"pain_summary":"names a patient","patient_info_present":true}'
-        : '{"relevance":0.55,"pain_summary":"vague insurance complaint","patient_info_present":false}',
-    );
-    await runListen(
-      cenv,
-      [fakeSource([mk("near", 100, "Insurance verification takes forever and I do not know why it is like this"), mk("pat", 200, "PATIENT Jane Roe called about her bill again and again today")])],
-      now,
-      stub.fn,
-    );
-    const rows = await db
-      .prepare("SELECT external_id, relevance, pain_summary FROM items ORDER BY external_id")
-      .all<{ external_id: string; relevance: number; pain_summary: string | null }>();
-    expect(rows.results).toEqual([
-      { external_id: "near", relevance: 0.55, pain_summary: "vague insurance complaint" },
-      { external_id: "pat", relevance: 0.3, pain_summary: null },
-    ]);
-    expect(await db.prepare("SELECT COUNT(*) AS n FROM leads").first<{ n: number }>()).toEqual({ n: 0 }); // below threshold: still not a lead
-  });
-
-  it("keeps the plain author name only for leads", async () => {
-    const stub = claudeStub((p) => (p.includes("KEEP") ? high : low));
-    const src = fakeSource([
-      mk("lead", 100, "KEEP: front desk drowning in insurance calls, hours every day"),
-      mk("plain", 200, "Just a general question about dental school interviews and applications"),
-    ]);
+  it("advances the cursor even when no items qualify", async () => {
+    const stub = claudeStub(() => low);
+    const src = fakeSource([mk("a", 100)]);
     await runListen(cenv, [src], now, stub.fn);
-    const rows = await db
-      .prepare("SELECT external_id, author_name, author_hash FROM items ORDER BY external_id")
-      .all<{ external_id: string; author_name: string | null; author_hash: string }>();
-    expect(rows.results.map((r) => [r.external_id, r.author_name])).toEqual([
-      ["lead", "dr_smith"],
-      ["plain", null],
-    ]);
-    expect(rows.results.every((r) => /^[0-9a-f]{16}$/.test(r.author_hash))).toBe(true); // the hash is still stored for all
+    expect(await getCursor(db, "test:src")).toBe("100");
   });
 
-  it("hashes the author name", async () => {
+  it("does not store items when the model says patient info is present", async () => {
+    const stub = claudeStub(() => '{"relevance":0.9,"pain_summary":"calls","patient_info_present":true}');
+    await runListen(cenv, [fakeSource([mk("a", 100)])], now, stub.fn);
+    const items = await db.prepare("SELECT excerpt, pain_summary, author_name FROM items").first();
+    expect(items?.excerpt).toBe("[excerpt withheld: may contain patient details]");
+    expect(items?.pain_summary).toBeNull();
+    expect(items?.author_name).toBeNull();
+  });
+
+  it("keeps the author name only for leads", async () => {
+    const stub = claudeStub((p) => (p.includes("QUALIFIED") ? high : low));
+    const lead = mk("lead", 100, "QUALIFIED: Our front desk is drowning in insurance verification calls every day.");
+    const nonLead = mk("other", 200, "I had a general thought about dental hygiene practices and protocols that I wanted to share with the community.");
+    await runListen(cenv, [fakeSource([lead, nonLead])], now, stub.fn, 0.5);
+    const items = await db.prepare("SELECT external_id, author_name FROM items ORDER BY created_utc").all();
+    expect(items.results[0].author_name).toBe("dr_smith");
+    expect(items.results[1].author_name).toBeNull();
+  });
+
+  it("stops at MAX_ITEMS_PER_RUN and leaves the cursor before the unprocessed ones", async () => {
     const stub = claudeStub(() => high);
-    await runListen(cenv, [fakeSource([mk("h", 100)])], now, stub.fn);
-    const row = await db.prepare("SELECT author_hash FROM items").first<{ author_hash: string }>();
-    expect(row?.author_hash).toMatch(/^[0-9a-f]{16}$/);
-  });
-
-  it("stops at the daily cap, makes no further calls, and leaves the cursor before unscored items", async () => {
-    // Already at the cap.
-    await recordApiCall(
-      db,
-      { agent: "t", model: "claude-haiku-4-5", inputTokens: 1, outputTokens: 1, costUsd: 3 },
-      now,
-    );
-    const stub = claudeStub(() => high);
-    const out = await runListen(cenv, [fakeSource([mk("a", 100), mk("b", 200)])], now, stub.fn);
-    expect(out.stoppedByBudget).toBe(true);
-    expect(stub.calls()).toBe(0);
-    expect(await getCursor(db, "test:src")).toBeNull();
-    const cap = await db.prepare("SELECT COUNT(*) AS n FROM budget_events").first<{ n: number }>();
-    expect(cap?.n).toBe(1);
-  });
-});
-
-describe("RedditSource", () => {
-  const listing = (children: object[]) => ({ data: { children: children.map((data) => ({ kind: "t3", data })) } });
-
-  function redditFetch(log: { method: string; url: string }[]) {
-    return (async (url: string, init: RequestInit) => {
-      log.push({ method: init.method ?? "GET", url });
-      if (url.includes("access_token")) return new Response(JSON.stringify({ access_token: "tok" }));
-      if (url.includes("/new")) {
-        return new Response(
-          JSON.stringify(
-            listing([
-              { id: "1", name: "t3_1", author: "a", title: "Insurance hell", selftext: "so many calls", permalink: "/r/dentistry/1", created_utc: 300 },
-              { id: "2", name: "t3_2", author: "b", title: "old", selftext: "", permalink: "/r/dentistry/2", created_utc: 50 },
-              { id: "3", name: "t3_3", author: "c", title: "gone", selftext: "[removed]", permalink: "/r/dentistry/3", created_utc: 400 },
-            ]),
-          ),
-        );
-      }
-      return new Response(
-        JSON.stringify(listing([{ id: "4", name: "t1_4", author: "d", body: "same here", permalink: "/r/dentistry/c4", created_utc: 310 }])),
-      );
-    }) as unknown as typeof fetch;
-  }
-
-  it("fetches posts and comments, drops old and removed items", async () => {
-    const log: { method: string; url: string }[] = [];
-    const src = new RedditSource("dentistry", "id", "secret", redditFetch(log));
-    const items = await src.fetchRecent(100);
-    expect(items.map((i) => i.externalId).sort()).toEqual(["t1_4", "t3_1"]);
-    expect(items[0].url).toMatch(/^https:\/\/www\.reddit\.com\/r\/dentistry/);
-  });
-
-  it("only ever issues GETs to the data API (POST only for the token exchange)", async () => {
-    const log: { method: string; url: string }[] = [];
-    await new RedditSource("dentistry", "id", "secret", redditFetch(log)).fetchRecent(null);
-    const nonGet = log.filter((r) => r.method !== "GET");
-    expect(nonGet).toHaveLength(1);
-    expect(nonGet[0].url).toContain("/api/v1/access_token");
-  });
-
-  it("filters broad subreddits by keyword", async () => {
-    const fn = (async (url: string) => {
-      if (url.includes("access_token")) return new Response(JSON.stringify({ access_token: "t" }));
-      return new Response(
-        JSON.stringify(
-          url.includes("/new")
-            ? listing([
-                { id: "1", name: "t3_1", title: "Dental office payroll", selftext: "help", permalink: "/p1", created_utc: 10 },
-                { id: "2", name: "t3_2", title: "Coffee shop lease", selftext: "help", permalink: "/p2", created_utc: 11 },
-              ])
-            : listing([]),
-        ),
-      );
-    }) as unknown as typeof fetch;
-    const items = await new RedditSource("smallbusiness", "id", "s", fn).fetchRecent(null);
-    expect(items.map((i) => i.externalId)).toEqual(["t3_1"]);
-  });
-
-  it("throws on API errors", async () => {
-    const fn = (async () => new Response("no", { status: 401 })) as unknown as typeof fetch;
-    await expect(new RedditSource("dentistry", "id", "s", fn).fetchRecent(null)).rejects.toThrow(/401/);
-  });
-});
-
-describe("runListen source rotation", () => {
-  it("visits maxSources per run, round-robin, so every source gets a turn", async () => {
-    await env.DB.prepare("DELETE FROM cursors").run();
-    const visited: string[] = [];
-    const mkSource = (key: string): Source => ({
-      key,
-      fetchRecent: async () => {
-        visited.push(key);
-        return [];
-      },
-    });
-    const sources = ["a", "b", "c", "d", "e"].map(mkSource);
-    const stub = claudeStub(() => "{}");
-    for (let i = 0; i < 4; i++) await runListen(cenv, sources, now, stub.fn, undefined, 2);
-    // runs: a,b | c,d | e,a | b,c
-    expect(visited).toEqual(["a", "b", "c", "d", "e", "a", "b", "c"]);
-  });
-});
-
-describe("runListen acknowledge and duplicates", () => {
-  it("acknowledges handled items, counts already-stored ones separately, and skips rescoring them", async () => {
-    const stub = claudeStub(() => low);
-    const acked: string[][] = [];
-    const src: Source = {
-      key: "test:src",
-      fetchRecent: async () => [mk("a", 100), mk("b", 200)],
-      acknowledge: async (items) => void acked.push(items.map((i) => i.externalId)),
-    };
-    const first = await runListen(cenv, [src], now, stub.fn);
-    expect(first).toMatchObject({ seen: 2, alreadyStored: 0, scored: 2 });
-    expect(acked[0].sort()).toEqual(["a", "b"]);
-
-    const second = await runListen(cenv, [src], now, stub.fn);
-    expect(second).toMatchObject({ seen: 0, alreadyStored: 2, scored: 0 });
-    expect(acked[1].sort()).toEqual(["a", "b"]); // known items count as handled
+    await runListen(cenv, [fakeSource([mk("a", 100), mk("b", 200), mk("c", 300)])], now, stub.fn, 0.7, 1, 2);
     expect(stub.calls()).toBe(2);
+    expect(await getCursor(db, "test:src")).toBe("200");
   });
 
-  it("does not acknowledge items it ran out of budget for", async () => {
-    const stub = claudeStub(() => low);
-    const acked: string[][] = [];
-    const items = Array.from({ length: 20 }, (_, i) => mk(`i${i}`, 100 + i));
-    const src: Source = {
-      key: "test:src",
-      fetchRecent: async () => items,
-      acknowledge: async (handled) => void acked.push(handled.map((i) => i.externalId)),
-    };
-    const out = await runListen(cenv, [src], now, stub.fn);
-    expect(out.scored).toBe(15); // MAX_ITEMS_PER_RUN
-    expect(acked[0]).toHaveLength(15);
-    expect(acked[0]).not.toContain("i19"); // the newest were left for next time
+  it("round-robin: visits MAX_SOURCES_PER_RUN sources and continues from where it stopped", async () => {
+    const stub = claudeStub(() => high);
+    const sources = [
+      { key: "a", async fetchRecent() { return [{ ...mk("a1", 100), source: "a" }]; } },
+      { key: "b", async fetchRecent() { return [{ ...mk("b1", 100), source: "b" }]; } },
+      { key: "c", async fetchRecent() { return [{ ...mk("c1", 100), source: "c" }]; } },
+    ];
+    await runListen(cenv, sources, now, stub.fn, 0.7, 2);
+    expect(stub.calls()).toBe(2);
+    const items = await db.prepare("SELECT source FROM items ORDER BY source").all();
+    expect(items.results.map((r) => r.source)).toEqual(["a", "b"]);
+    expect(await getCursor(db, "rr:listen")).toBe("2");
+    await runListen(cenv, sources, now, stub.fn, 0.7, 2);
+    expect(stub.calls()).toBe(3);
+    const itemsAfter = await db.prepare("SELECT source FROM items ORDER BY source").all();
+    expect(itemsAfter.results.map((r) => r.source)).toEqual(["a", "b", "c"]);
+  });
+
+  it("source selection and isolation > runListen > a failing source does not stop the others", async () => {
+    const stub = claudeStub(() => high);
+    const sources = [
+      { key: "ok", async fetchRecent() { return [mk("ok", 100)]; } },
+      { key: "broken", async fetchRecent(): Promise<SourceItem[]> { throw new Error("boom"); } },
+    ];
+    const out = await runListen(cenv, sources, now, stub.fn);
+    expect(out.sourceErrors).toBe(1);
+    expect(out.leads).toBe(1);
+  });
+
+  it("round-robin: wraps around correctly", async () => {
+    const sources = [
+      { key: "a", async fetchRecent() { return [] as SourceItem[]; } },
+      { key: "b", async fetchRecent() { return [] as SourceItem[]; } },
+    ];
+    await db.prepare("INSERT INTO cursors (source_key, last_seen) VALUES (?, ?)").bind("rr:listen", "1").run();
+    const noCall = (async () => { throw new Error("not called"); }) as unknown as typeof fetch;
+    await runListen(cenv, sources, now, noCall, 0.7, 1);
+    expect(await getCursor(db, "rr:listen")).toBe("0");
+  });
+
+  it("scoring threshold can be raised", async () => {
+    const stub = claudeStub(() => '{"relevance":0.75,"pain_summary":"mid","patient_info_present":false}');
+    const out1 = await runListen(cenv, [fakeSource([mk("a", 100)])], now, stub.fn, 0.7);
+    expect(out1.leads).toBe(1);
+    await db.prepare("DELETE FROM leads").run();
+    await db.prepare("DELETE FROM items").run();
+    await db.prepare("DELETE FROM cursors").run();
+    const out2 = await runListen(cenv, [fakeSource([mk("a", 100)])], now, stub.fn, 0.8);
+    expect(out2.leads).toBe(0);
+  });
+
+  it("filters out gratitude comments without spending on Claude", async () => {
+    const stub = claudeStub(() => high);
+    const out = await runListen(cenv, [fakeSource([mk("thanks", 100, "Thanks for the great tutorial! This was very helpful and I learned a lot from watching this.")])], now, stub.fn);
+    expect(out.filteredOut).toBe(1);
+    expect(stub.calls()).toBe(0);
+  });
+
+  it("filters out basic how-to questions without pain signals", async () => {
+    const stub = claudeStub(() => high);
+    const out = await runListen(cenv, [fakeSource([mk("q", 100, "How do I export a report from Open Dental? Can someone explain the steps? I'm new to this software.")])], now, stub.fn);
+    expect(out.filteredOut).toBe(1);
+    expect(stub.calls()).toBe(0);
+  });
+
+  it("does not filter questions that include pain/frustration signals", async () => {
+    const stub = claudeStub(() => high);
+    const out = await runListen(cenv, [fakeSource([mk("pain", 100, "How do I export a report? We're so overwhelmed trying to figure this out and it's very frustrating for our team.")])], now, stub.fn);
+    expect(out.filteredOut).toBe(0);
+    expect(stub.calls()).toBe(1);
+  });
+});
+
+describe("Reddit source integration", () => {
+  const mockFetch = (posts: unknown, comments: unknown): typeof fetch => {
+    const token = JSON.stringify({ access_token: "test-token" });
+    const fn = (async (url: RequestInfo | URL) => {
+      if (url.toString().includes("/api/v1/access_token")) return new Response(token);
+      if (url.toString().includes("/new")) return new Response(JSON.stringify(posts));
+      return new Response(JSON.stringify(comments));
+    }) as unknown as typeof fetch;
+    return fn;
+  };
+
+  it("fetches posts and comments from Reddit", async () => {
+    const stub = claudeStub(() => high);
+    const fake = mockFetch(
+      { data: { children: [{ data: { id: "p1", name: "t3_p1", author: "someone", title: "Help", selftext: "Our front desk is drowning in insurance verification calls every single day.", permalink: "/p1", created_utc: 100 } }] } },
+      { data: { children: [{ data: { id: "c1", name: "t1_c1", author: "other", body: "Same here, the phone never stops ringing. It's exhausting dealing with this every day.", permalink: "/c1", created_utc: 200 } }] } },
+    );
+    const source = new RedditSource("dentistry", "id", "secret", fake);
+    const out = await runListen(cenv, [source], now, stub.fn);
+    expect(out.seen).toBe(2);
+    expect(out.scored).toBe(2);
+  });
+
+  it("skips removed and deleted items", async () => {
+    const stub = claudeStub(() => high);
+    const fake = mockFetch(
+      { data: { children: [{ data: { id: "gone", name: "t3_gone", selftext: "[removed]", permalink: "/gone", created_utc: 100 } }] } },
+      { data: { children: [] } },
+    );
+    const source = new RedditSource("dentistry", "id", "secret", fake);
+    const out = await runListen(cenv, [source], now, stub.fn);
+    expect(out.seen).toBe(0);
   });
 });

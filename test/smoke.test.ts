@@ -52,7 +52,7 @@ describe("runScheduled (end to end with fakes)", () => {
           externalId: "t3_1",
           url: "https://reddit.com/r/dentistry/1",
           author: "dr",
-          text: "Our front desk spends the whole day on insurance verification calls.",
+          text: "Our front desk spends the whole day on insurance verification calls. It's consuming all our time and energy.",
           createdUtc: 1000,
         },
       ];
