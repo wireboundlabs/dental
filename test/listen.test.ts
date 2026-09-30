@@ -105,6 +105,28 @@ describe("runListen", () => {
     expect(row?.excerpt).not.toContain("John");
   });
 
+  it("keeps the relevance for every scored item, but no pain summary when patient info is flagged", async () => {
+    const stub = claudeStub((p) =>
+      p.includes("PATIENT")
+        ? '{"relevance":0.3,"pain_summary":"names a patient","patient_info_present":true}'
+        : '{"relevance":0.55,"pain_summary":"vague insurance complaint","patient_info_present":false}',
+    );
+    await runListen(
+      cenv,
+      [fakeSource([mk("near", 100, "Insurance verification takes forever and I do not know why it is like this"), mk("pat", 200, "PATIENT Jane Roe called about her bill again and again today")])],
+      now,
+      stub.fn,
+    );
+    const rows = await db
+      .prepare("SELECT external_id, relevance, pain_summary FROM items ORDER BY external_id")
+      .all<{ external_id: string; relevance: number; pain_summary: string | null }>();
+    expect(rows.results).toEqual([
+      { external_id: "near", relevance: 0.55, pain_summary: "vague insurance complaint" },
+      { external_id: "pat", relevance: 0.3, pain_summary: null },
+    ]);
+    expect(await db.prepare("SELECT COUNT(*) AS n FROM leads").first<{ n: number }>()).toEqual({ n: 0 }); // below threshold: still not a lead
+  });
+
   it("hashes the author name", async () => {
     const stub = claudeStub(() => high);
     await runListen(cenv, [fakeSource([mk("h", 100)])], now, stub.fn);

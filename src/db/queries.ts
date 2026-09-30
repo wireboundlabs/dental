@@ -11,6 +11,10 @@ export interface NewItem {
   authorHash: string | null;
   excerpt: string;
   createdUtc: number;
+  /** The model's 0-1 relevance, kept for every scored item. */
+  relevance?: number | null;
+  /** One-line pain summary; null when patient details may be present. */
+  painSummary?: string | null;
 }
 
 export interface DraftRow {
@@ -45,10 +49,20 @@ export function utcDay(now: Date): string {
 export async function insertItemIfNew(db: D1Database, item: NewItem, now: Date): Promise<number | null> {
   const res = await db
     .prepare(
-      `INSERT OR IGNORE INTO items (source, external_id, url, author_hash, excerpt, created_utc, fetched_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT OR IGNORE INTO items (source, external_id, url, author_hash, excerpt, created_utc, fetched_at, relevance, pain_summary)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
-    .bind(item.source, item.externalId, item.url, item.authorHash, item.excerpt, item.createdUtc, now.toISOString())
+    .bind(
+      item.source,
+      item.externalId,
+      item.url,
+      item.authorHash,
+      item.excerpt,
+      item.createdUtc,
+      now.toISOString(),
+      item.relevance ?? null,
+      item.painSummary ?? null,
+    )
     .run();
   return res.meta.changes > 0 ? res.meta.last_row_id : null;
 }
