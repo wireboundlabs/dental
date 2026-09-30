@@ -9,7 +9,7 @@ import type { KeyValueStore, Source } from "./sources/types";
 import { YouTubeSource } from "./sources/youtube";
 
 // Must match "triggers.crons" in wrangler.jsonc.
-export const CRON_AGENTS = "*/5 * * * *";
+export const CRON_AGENTS = "*/15 * * * *";
 export const CRON_DIGEST = "0 13 * * *";
 
 /** A source is enabled only when its credentials are configured. */
