@@ -146,6 +146,54 @@ describe("dashboard", () => {
     expect(res.status).toBe(403);
   });
 
+  it("shows who posted, when, on which video, and the exact comment, so it can be found on the source site", async () => {
+    const posted = Math.floor(Date.parse("2026-09-29T22:14:00Z") / 1000);
+    const itemId = await insertItemIfNew(
+      db,
+      {
+        source: "youtube:x",
+        externalId: crypto.randomUUID(),
+        url: "https://www.youtube.com/watch?v=abc&lc=def",
+        authorHash: null,
+        authorName: "Dr <b>Pat</b> Nguyen",
+        excerpt: "[Comment on video: Dentrix &amp; Front Desk Tips]\nWe lose hours on hold with insurance <every> day.",
+        createdUtc: posted,
+      },
+      now,
+    );
+    const leadId = await insertLead(db, { itemId: itemId!, score: 0.9, painSummary: "insurance holds" }, now);
+    await insertDraft(db, { leadId, kind: "reply", body: "How do you handle it?" }, now);
+    const html = await (await handleDashboard(req("/", await sign(goodClaims())), denv, now, certsFetch())).text();
+    expect(html).toContain("Dr &lt;b&gt;Pat&lt;/b&gt; Nguyen"); // author, escaped
+    expect(html).toContain('<time datetime="2026-09-29T22:14:00.000Z">Sep 29, 2026, 10:14 PM UTC</time>');
+    expect(html).toContain("Dentrix &amp; Front Desk Tips"); // video title, entity decoded then re-escaped once
+    expect(html).not.toContain("&amp;amp;");
+    expect(html).toContain("<blockquote>We lose hours on hold with insurance &lt;every&gt; day.</blockquote>");
+    expect(html).not.toContain("[Comment on video:");
+    expect(html).toContain("Newest first");
+  });
+
+  it("says so when the name was not saved (older lead) and when the excerpt was withheld for patient details", async () => {
+    const itemId = await insertItemIfNew(
+      db,
+      {
+        source: "youtube:x",
+        externalId: crypto.randomUUID(),
+        url: "https://www.youtube.com/watch?v=abc&lc=def",
+        authorHash: null,
+        excerpt: "[excerpt withheld: may contain patient details]",
+        createdUtc: 1,
+      },
+      now,
+    );
+    const leadId = await insertLead(db, { itemId: itemId!, score: 0.9, painSummary: "p" }, now);
+    await insertDraft(db, { leadId, kind: "reply", body: "b" }, now);
+    const html = await (await handleDashboard(req("/", await sign(goodClaims())), denv, now, certsFetch())).text();
+    expect(html).toContain("name not saved (older lead)");
+    expect(html).toContain("excerpt withheld");
+    expect(html).not.toContain("<blockquote>[excerpt withheld");
+  });
+
   it("lists pending drafts, escaping content, with a copy button", async () => {
     await seedDraft();
     const res = await handleDashboard(req("/", await sign(goodClaims())), denv, now, certsFetch());

@@ -9,7 +9,7 @@ Cloudflare Workers project (TypeScript, Wrangler, D1, Cron Triggers). Finds inde
 4. **Secrets only via `wrangler secret put`** (local: `.dev.vars`, which is gitignored). Never put secrets in code, `wrangler.jsonc`, tests, fixtures, docs, or commits. `wrangler.jsonc` `vars` are for non-secret config only.
 5. **Every Claude API call goes through `src/claude/client.ts`**, which checks the budget before the call and records cost in D1 after it. Never call the Anthropic API directly elsewhere. Daily spend hard-stops at `DAILY_BUDGET_USD` (default $3, UTC day). The digest reports when the cap was hit.
 6. **Dashboard is protected by Cloudflare Access**, and the Worker also verifies the Access JWT and fails closed.
-7. **Privacy:** dental posts may mention patients. Never store or draft using patient details; store only a short excerpt and the pain summary.
+7. **Privacy:** dental posts may mention patients. Never store or draft using patient details; store only a short excerpt and the pain summary. The commenter's public display name is stored in plain text only for items that become leads (so the owner can find the comment to reply); every other item keeps just an author hash.
 8. Drafts are curious and non-pitching, written in the owner's voice (see `src/config.ts`). No links, no product mentions.
 
 ## Architecture

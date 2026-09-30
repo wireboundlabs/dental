@@ -127,6 +127,23 @@ describe("runListen", () => {
     expect(await db.prepare("SELECT COUNT(*) AS n FROM leads").first<{ n: number }>()).toEqual({ n: 0 }); // below threshold: still not a lead
   });
 
+  it("keeps the plain author name only for leads", async () => {
+    const stub = claudeStub((p) => (p.includes("KEEP") ? high : low));
+    const src = fakeSource([
+      mk("lead", 100, "KEEP: front desk drowning in insurance calls, hours every day"),
+      mk("plain", 200, "Just a general question about dental school interviews and applications"),
+    ]);
+    await runListen(cenv, [src], now, stub.fn);
+    const rows = await db
+      .prepare("SELECT external_id, author_name, author_hash FROM items ORDER BY external_id")
+      .all<{ external_id: string; author_name: string | null; author_hash: string }>();
+    expect(rows.results.map((r) => [r.external_id, r.author_name])).toEqual([
+      ["lead", "dr_smith"],
+      ["plain", null],
+    ]);
+    expect(rows.results.every((r) => /^[0-9a-f]{16}$/.test(r.author_hash))).toBe(true); // the hash is still stored for all
+  });
+
   it("hashes the author name", async () => {
     const stub = claudeStub(() => high);
     await runListen(cenv, [fakeSource([mk("h", 100)])], now, stub.fn);

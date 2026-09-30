@@ -15,6 +15,8 @@ export interface NewItem {
   relevance?: number | null;
   /** One-line pain summary; null when patient details may be present. */
   painSummary?: string | null;
+  /** Commenter display name. Only pass it for items that become leads. */
+  authorName?: string | null;
 }
 
 export interface DraftRow {
@@ -31,6 +33,10 @@ export interface DraftRow {
   url: string;
   pain_summary: string;
   score: number;
+  excerpt: string;
+  author_name: string | null;
+  /** When the comment was posted (unix seconds). */
+  created_utc: number;
 }
 
 export interface LeadForDraft {
@@ -49,8 +55,8 @@ export function utcDay(now: Date): string {
 export async function insertItemIfNew(db: D1Database, item: NewItem, now: Date): Promise<number | null> {
   const res = await db
     .prepare(
-      `INSERT OR IGNORE INTO items (source, external_id, url, author_hash, excerpt, created_utc, fetched_at, relevance, pain_summary)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT OR IGNORE INTO items (source, external_id, url, author_hash, excerpt, created_utc, fetched_at, relevance, pain_summary, author_name)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .bind(
       item.source,
@@ -62,6 +68,7 @@ export async function insertItemIfNew(db: D1Database, item: NewItem, now: Date):
       now.toISOString(),
       item.relevance ?? null,
       item.painSummary ?? null,
+      item.authorName ?? null,
     )
     .run();
   return res.meta.changes > 0 ? res.meta.last_row_id : null;
@@ -113,7 +120,7 @@ export async function insertDraft(
 export async function listDraftsByStatus(db: D1Database, status: DraftStatus): Promise<DraftRow[]> {
   const { results } = await db
     .prepare(
-      `SELECT d.*, i.url, l.pain_summary, l.score
+      `SELECT d.*, i.url, i.excerpt, i.author_name, i.created_utc, l.pain_summary, l.score
          FROM drafts d
          JOIN leads l ON l.id = d.lead_id
          JOIN items i ON i.id = l.item_id
@@ -128,7 +135,7 @@ export async function listDraftsByStatus(db: D1Database, status: DraftStatus): P
 export async function getDraft(db: D1Database, id: number): Promise<DraftRow | null> {
   return db
     .prepare(
-      `SELECT d.*, i.url, l.pain_summary, l.score
+      `SELECT d.*, i.url, i.excerpt, i.author_name, i.created_utc, l.pain_summary, l.score
          FROM drafts d
          JOIN leads l ON l.id = d.lead_id
          JOIN items i ON i.id = l.item_id
