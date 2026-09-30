@@ -8,7 +8,7 @@ import type { Source } from "../src/sources/types";
 import { memoryStore } from "./kv";
 import { YouTubeSource } from "../src/sources/youtube";
 
-const longText = "Our front desk spends hours every day on insurance verification calls.";
+const longText = "Our front desk spends hours every day on insurance verification calls. It's overwhelming and exhausting.";
 const now = new Date("2026-09-29T12:00:00Z");
 const cenv = { ...env, DAILY_BUDGET_USD: "3", CLAUDE_MODEL: "claude-haiku-4-5" };
 

@@ -23,23 +23,21 @@ export const BROAD_SUBREDDIT_KEYWORDS: Record<string, string[]> = {
  * it, not just the top few. Stats for a page cost 1 more unit (videos.list) and let us drop videos with no
  * comments. Each video then has its own progress marker, and is re-read on a schedule that depends on its age.
  *
- * Quota (10,000 units/day free) at the 15-minute cron (96 runs/day), 9 queries, 2 sources per run:
- *   best pool: 9 queries x 3 pages x 101 = ~2,700 in the first 3 days, then ~200/day for restarts
- *   new pool:  9 queries x 2 refreshes/day x 101 = ~1,800/day
+ * Quota (10,000 units/day free) at the 15-minute cron (96 runs/day), 7 queries, 2 sources per run:
+ *   best pool: 7 queries x 3 pages x 101 = ~2,100 in the first 3 days, then ~150/day for restarts
+ *   new pool:  7 queries x 2 refreshes/day x 101 = ~1,400/day
  *   comment reads: at most 96 runs x 2 sources x YOUTUBE_VIDEOS_PER_VISIT = ~1,500/day, usually far less
- * so ~3,500/day at worst, a bit more in the first three days. Each source is visited about every hour
- * (9 sources, 2 per run); if you slow the cron further, raise MAX_SOURCES_PER_RUN or freshness suffers. If quota is hit, the source backs off for an hour.
+ * so ~3,000/day at worst, a bit more in the first three days. Each source is visited about every 50 minutes
+ * (7 sources, 2 per run); if you slow the cron further, raise MAX_SOURCES_PER_RUN or freshness suffers. If quota is hit, the source backs off for an hour.
  */
 export const YOUTUBE_QUERIES = [
-  '"dental front desk" "insurance verification"',
-  '"dental practice management" software review',
-  '"Open Dental" tutorial',
-  'Dentrix Eaglesoft comparison',
+  '"dental front desk" "insurance verification" problems',
   '"dental office" "front desk" overwhelmed phones',
-  '"dental scheduling" "no-shows" OR cancellations',
-  '"dental office manager" "insurance" follow-up',
+  '"dental scheduling" "no-shows" OR cancellations frustrated',
+  '"dental office manager" "insurance" follow-up burnout',
   '"dental practice owner" staffing OR hiring problems',
-  '"dental insurance" claims billing workflow',
+  '"dental insurance" claims billing headaches rejected',
+  '"dental front desk" quitting overwhelmed calls',
 ];
 /** Results per search page (the API maximum; the cost is the same as asking for 3). */
 export const YOUTUBE_POOL_PAGE_SIZE = 50;
@@ -85,8 +83,8 @@ export const MAX_ITEMS_PER_RUN = 15;
 /** Max leads drafted per cron run. */
 export const MAX_DRAFTS_PER_RUN = 5;
 
-/** Items shorter than this are not worth a scoring call. */
-export const MIN_TEXT_LENGTH = 40;
+/** Items shorter than this are not worth a scoring call (need enough context to assess pain). */
+export const MIN_TEXT_LENGTH = 80;
 
 export const EXCERPT_MAX_CHARS = 500;
 

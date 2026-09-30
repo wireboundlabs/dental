@@ -7,7 +7,7 @@ import { YouTubeSource } from "../src/sources/youtube";
 import type { Source } from "../src/sources/types";
 
 const KEY = "AIza-test-key";
-const longText = "Our front desk spends hours every day on insurance verification calls.";
+const longText = "Our front desk spends hours every day on insurance verification calls. It's overwhelming and exhausting.";
 
 type Req = { url: string; method: string; headers: Record<string, string> };
 
