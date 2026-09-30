@@ -37,7 +37,7 @@ export const YOUTUBE_QUERIES = [
   "Dentrix vs Eaglesoft",
   "dental office phones front desk overwhelmed",
   "dental scheduling no-shows cancellations",
-  "dental receptionist day in the life",
+  "dental office manager insurance follow up",
   "dental practice owner staffing problems",
   "dental insurance claims billing headaches",
 ];
