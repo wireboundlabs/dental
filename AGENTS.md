@@ -48,6 +48,22 @@ When reviewing or merging a PR:
    - Otherwise: stop and report risk + PR link. Do not merge medium/high risk changes.
 5. **If asked to merge a medium/high PR:** refuse the merge and explain the risk gate.
 
+## Code Quality & Conventions
+
+### Legacy Reaper Policy
+
+**When adding replacements, remove the old code in the same PR** (when safe). If cleanup must be deferred (gradual rollout, backward compat, uncertain if used), mark it explicitly with a `LEGACY_REAPER` comment:
+
+```typescript
+// LEGACY_REAPER: <why it exists> | remove when <specific condition>
+```
+
+Every PR must include a `## Legacy reaper` section documenting what was removed and what was deferred (with markers). Never leave silent dual-paths or unmarked deprecated code.
+
+Before implementing a feature, **search for existing `LEGACY_REAPER` markers** in your work area and clear any whose removal conditions are met.
+
+See `.cursor/rules/legacy-reaper.mdc` for full rules and `.cursor/skills/legacy-reaper/` for step-by-step guidance.
+
 ## Architecture Overview
 
 See `CLAUDE.md` for full architecture. Key modules:
