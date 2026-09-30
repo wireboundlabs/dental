@@ -82,9 +82,10 @@ describe("runScheduled (end to end with fakes)", () => {
     expect(sent[0].to).toBe("owner@example.com");
   });
 
-  it("ignores unknown crons", async () => {
+  it("runs the agents job for an unrecognized schedule (a stale trigger must not silently stop collection), and never emails", async () => {
     const before = sent.length;
-    await runScheduled("* * * * *", full, { now });
+    await runScheduled("*/5 * * * *", full, { sources: [source], fetchFn: claude, now });
+    expect(await listDraftsByStatus(env.DB, "pending")).toHaveLength(1);
     expect(sent).toHaveLength(before);
   });
 });
