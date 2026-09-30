@@ -1,0 +1,320 @@
+---
+name: Legacy Reaper
+description: When introducing replacements, hunt and remove superseded code in the same change
+alwaysApply: true
+---
+
+# Legacy Reaper
+
+**When you add a new feature, path, API, config, prompt, query, or dependency that replaces or supersedes something existing, you MUST also hunt and remove (or clearly deprecate with a follow-up delete) the legacy leftovers in the same change when safe.**
+
+## What to Remove When Introducing Replacements
+
+### Functions & Code Paths
+- Unused old functions that the new code replaces
+- Dead branches (if/else, switch cases) made obsolete by the new logic
+- Fallback code that is no longer reachable
+- Duplicate implementations (keep the new one, delete the old)
+
+### Dependencies & Imports
+- Unused imports from modules no longer referenced
+- Package dependencies that were only used by the removed code
+- Type imports for interfaces/types no longer used
+
+### Configuration & Constants
+- Obsolete config knobs, feature flags, or environment variables
+- Constants that only applied to the old implementation
+- Hard-coded values replaced by the new config system
+
+### Prompts, Queries & Templates
+- Superseded Claude prompts (e.g., old scoring/drafting templates)
+- Replaced D1 queries or SQL statements
+- Old email/digest templates no longer used
+- Dashboard UI strings or views made obsolete
+
+### Tests
+- Test files that **only** covered the removed code path
+- Test cases within files that mock or verify deleted functions
+- **Do NOT delete tests if they can be updated** to cover the new path — refactor them instead
+
+### Documentation & Comments
+- Search for strings containing:
+  - The old function/file/feature name
+  - "old", "legacy", "deprecated", "superseded"
+  - "TODO remove", "FIXME delete"
+  - Feature flag names that are now dead
+- Remove or update these references
+
+### Migration Artifacts
+- Old schema columns or tables replaced by new ones (via proper migrations)
+- Compatibility shims added during a previous migration that are no longer needed
+- Polyfills or workarounds for issues that no longer exist
+
+## When to Remove (Surgical, Not Destructive)
+
+✅ **DO remove:**
+- Code demonstrably unused after your change (verified by search, tests, and `npx fallow dead-code`)
+- Imports, dependencies, or config that nothing references anymore
+- Tests that cannot be adapted to the new path
+
+❌ **DO NOT remove:**
+- Unrelated working code outside the blast radius of your change
+- Shared utilities still used elsewhere in the codebase
+- Tests that can be updated to verify the new behavior
+- Anything that violates **CLAUDE.md hard rules** (e.g., do not accidentally expose secrets, break Access JWT, or create auto-posting paths while cleaning up)
+
+**Prefer surgical cleanup in the blast radius of your change.** This is not a license to gut unrelated code.
+
+## When Cleanup Must Be Deferred
+
+**Prefer deleting in the same PR when safe.** If cleanup cannot happen yet (e.g., gradual rollout, backward compatibility, migration in progress), you **MUST document it explicitly** so the reaper can find it later.
+
+### Mark with LEGACY_REAPER Comments
+
+Place a marker **near the code** that explains why it exists and when it can be removed:
+
+```typescript
+// LEGACY_REAPER: Dual-path for gradual YouTube rollout | remove when YOUTUBE_ENABLED default is true (est. 2 weeks)
+if (YOUTUBE_ENABLED) {
+  return await newYouTubeSource.fetch();
+} else {
+  return await oldRedditOnlyFetch();
+}
+```
+
+```typescript
+// LEGACY_REAPER: Backward compat for old draft schema | remove after v2 migration completes (check drafts table)
+const text = draft.content || draft.legacy_text;
+```
+
+```sql
+-- LEGACY_REAPER: Old column kept during migration | drop after backfill verified (see migration 0005)
+ALTER TABLE items ADD COLUMN new_author_hash TEXT;
+```
+
+**Format:** `LEGACY_REAPER: <why it exists> | remove when <condition>`
+
+**Never leave silent dead dual-paths** — either remove them immediately or document them with LEGACY_REAPER markers.
+
+### Document in the PR Body
+
+List the same deferred items in the PR body under a `Legacy reaper` section:
+
+```markdown
+## Legacy reaper
+
+Removed:
+- Deleted `oldScoringFunction()` (fully replaced by new prompt)
+- Dropped unused `OLD_REDDIT_ENDPOINT` constant
+
+Deferred (marked with LEGACY_REAPER):
+- Kept dual-path in `src/sources/youtube.ts:45` for gradual rollout
+- Retained `draft.legacy_text` column for backward compat during migration
+```
+
+This makes deferred cleanup **visible and trackable** for future work.
+
+## Discovery Process
+
+### 0. Check for Existing LEGACY_REAPER Markers (Start of Work)
+
+**Before implementing a feature,** search for existing LEGACY_REAPER markers in the blast radius and clear any that are now safe to remove:
+
+```bash
+# Find all LEGACY_REAPER markers
+rg "LEGACY_REAPER" --type ts --type sql --type md
+
+# Check specific files you're about to modify
+rg "LEGACY_REAPER" src/agents/listen.ts src/sources/youtube.ts
+```
+
+If you find markers whose removal conditions are met, **remove them and their associated code** as part of your current PR.
+
+### 1. Search for Direct References
+```bash
+# Search for the old function/class/constant name
+rg "oldFunctionName" --type ts
+
+# Search for the old config key
+rg "OLD_CONFIG_KEY" --glob "*.ts" --glob "*.json"
+
+# Search for the old prompt/query name
+rg "old_scoring_prompt" --type ts
+```
+
+### 2. Check for Legacy Markers
+```bash
+# Find TODO/FIXME comments about removal
+rg "TODO.*remove|FIXME.*delete|deprecated|legacy" -i
+
+# Find old/obsolete references
+rg "old|obsolete|superseded" -i --glob "*.ts" --glob "*.md"
+```
+
+### 3. Run Fallow for Dead Code
+```bash
+# Check for dead exports and unused dependencies
+npx fallow dead-code
+
+# Preview automatic cleanup (don't apply without review)
+npx fallow fix --dry-run
+```
+
+### 4. Verify Tests Still Pass
+```bash
+npm test
+npm run typecheck
+```
+
+## Uncertain? Document Instead of Deleting
+
+If something **looks** unused but you are unsure:
+- **Do NOT delete blindly** — breaking builds is worse than leaving dead code temporarily
+- **Mark it with a LEGACY_REAPER comment** explaining the uncertainty:
+  ```typescript
+  // LEGACY_REAPER: Possibly unused after refactor | remove if no references found in production logs (check after 1 week)
+  function maybeUnusedHelper() { ... }
+  ```
+- List it in the PR body under "Legacy reaper → Deferred" so humans can review
+- A human can verify and remove it in a follow-up
+
+**Never leave silent dual-paths or uncertain dead code unmarked.**
+
+## PR Requirements
+
+Every PR body **must include** a `Legacy reaper` section documenting what was removed and what was deferred:
+
+```markdown
+## Legacy reaper
+
+Removed:
+- Deleted `oldScoringFunction()` from `src/agents/listen.ts` (replaced by new prompt)
+- Removed unused import `fetchOldAPI` from `src/sources/reddit.ts`
+- Dropped `OLD_REDDIT_ENDPOINT` constant (no longer referenced)
+
+Deferred (marked with LEGACY_REAPER):
+- Kept dual-path in `src/sources/youtube.ts:45` for gradual rollout | remove when YOUTUBE_ENABLED default is true
+- Retained `draft.legacy_text` in schema for backward compat | drop after v2 migration (see migration 0005)
+```
+
+If no legacy was found or applicable:
+
+```markdown
+## Legacy reaper
+
+None found (new feature, no prior implementation)
+```
+
+**Format rules:**
+- Always include the section, even if empty
+- List immediate removals under "Removed:"
+- List deferred items under "Deferred (marked with LEGACY_REAPER):" with removal conditions
+- Include file paths and line numbers for deferred items so they're easy to find
+
+## Examples from This Repo
+
+### Example 1: New Scoring Prompt (Immediate Removal)
+**Change:** Replaced Haiku scoring prompt with a new multi-turn approach.
+
+**Reap:**
+- Remove the old `SCORING_PROMPT` constant
+- Delete or update tests mocking the old prompt structure
+- Search for comments referencing "old scoring" or "legacy prompt"
+
+**PR body:**
+```markdown
+## Legacy reaper
+
+Removed:
+- Deleted `SCORING_PROMPT` constant from `src/config.ts`
+- Updated tests in `tests/agents/listen.test.ts` to use new prompt structure
+```
+
+### Example 2: YouTube Dual-Path (Deferred Removal)
+**Change:** Added YouTube Data API client, but keeping Reddit-only fallback during rollout.
+
+**Reap (mark for later):**
+```typescript
+// LEGACY_REAPER: Reddit-only fallback during YouTube rollout | remove when YOUTUBE_ENABLED default is true (est. 2 weeks)
+if (YOUTUBE_ENABLED) {
+  sources.push(youtubeSource);
+} else {
+  sources.push(redditOnlySource);
+}
+```
+
+**PR body:**
+```markdown
+## Legacy reaper
+
+Removed:
+- None (new feature)
+
+Deferred (marked with LEGACY_REAPER):
+- Kept Reddit-only fallback in `src/scheduler.ts:67` | remove when YOUTUBE_ENABLED default is true
+```
+
+### Example 3: New D1 Query (Immediate Removal)
+**Change:** Refactored `getDraftsByStatus()` to use a more efficient query.
+
+**Reap:**
+- Remove the old `getOldDrafts()` function
+- Update or delete tests that only verified the old query
+- Search for call sites of the old function and ensure they now use the new one
+
+**PR body:**
+```markdown
+## Legacy reaper
+
+Removed:
+- Deleted `getOldDrafts()` from `src/db/queries.ts`
+- Removed test file `tests/db/old-drafts.test.ts` (logic covered by new tests)
+```
+
+### Example 4: Schema Migration (Deferred Removal)
+**Change:** Added `new_author_hash` column to replace `author_name`.
+
+**Reap (mark in migration):**
+```sql
+-- LEGACY_REAPER: Old author_name column | drop after backfill verified and code updated (see migration 0005)
+ALTER TABLE items ADD COLUMN new_author_hash TEXT;
+-- Migration 0005 will drop author_name after data migration
+```
+
+**PR body:**
+```markdown
+## Legacy reaper
+
+Removed:
+- None (additive migration)
+
+Deferred (marked with LEGACY_REAPER):
+- Kept `author_name` column in `migrations/0004_add_hash.sql` | drop in migration 0005 after backfill
+```
+
+### Example 5: Clearing Old LEGACY_REAPER Markers
+**Change:** Making YOUTUBE_ENABLED true by default (completing rollout).
+
+**Reap (at start of work):**
+```bash
+# Found existing marker:
+rg "LEGACY_REAPER.*YOUTUBE"
+# src/scheduler.ts:67: LEGACY_REAPER: Reddit-only fallback | remove when YOUTUBE_ENABLED default is true
+```
+
+**Action:** Remove the dual-path and the marker as part of this PR.
+
+**PR body:**
+```markdown
+## Legacy reaper
+
+Removed:
+- Cleared LEGACY_REAPER marker from `src/scheduler.ts:67` and removed Reddit-only fallback path
+- Updated YOUTUBE_ENABLED default to true in `src/config.ts`
+```
+
+## Reference
+
+- Use `.cursor/skills/legacy-reaper/` for step-by-step guidance when implementing features
+- Combine with risk assessment (`.cursor/rules/risk-and-merge.mdc`) — removing code can be high-risk if done carelessly
+- Always verify with `npm test && npm run typecheck && npx fallow` before finalizing
