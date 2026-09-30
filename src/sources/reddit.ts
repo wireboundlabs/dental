@@ -3,6 +3,7 @@ import { RateLimitError, backoffFromHeaders } from "../rate-limit";
 import type { Source, SourceItem } from "./types";
 
 const USER_AGENT = "cloudflare-worker:customer-discovery:v0.1 (read-only research)";
+const API_TIMEOUT_MS = 15000;
 
 interface RedditListing {
   data: {
@@ -44,37 +45,61 @@ export class RedditSource implements Source {
 
   private async getToken(): Promise<string> {
     if (this.token) return this.token;
-    const res = await this.fetchFn("https://www.reddit.com/api/v1/access_token", {
-      method: "POST",
-      headers: {
-        authorization: `Basic ${btoa(`${this.clientId}:${this.clientSecret}`)}`,
-        "content-type": "application/x-www-form-urlencoded",
-        "user-agent": USER_AGENT,
-      },
-      body: "grant_type=client_credentials",
-    });
-    if (res.status === 429) {
-      throw new RateLimitError("Reddit token error 429", backoffFromHeaders(res.headers, 300));
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), API_TIMEOUT_MS);
+    try {
+      const res = await this.fetchFn("https://www.reddit.com/api/v1/access_token", {
+        method: "POST",
+        headers: {
+          authorization: `Basic ${btoa(`${this.clientId}:${this.clientSecret}`)}`,
+          "content-type": "application/x-www-form-urlencoded",
+          "user-agent": USER_AGENT,
+        },
+        body: "grant_type=client_credentials",
+        signal: controller.signal,
+      });
+      clearTimeout(timeoutId);
+      if (res.status === 429) {
+        throw new RateLimitError("Reddit token error 429", backoffFromHeaders(res.headers, 300));
+      }
+      if (!res.ok) throw new Error(`Reddit token error ${res.status}`);
+      const json = (await res.json()) as { access_token?: string };
+      if (!json.access_token) throw new Error("Reddit token response missing access_token");
+      this.token = json.access_token;
+      return this.token;
+    } catch (err) {
+      clearTimeout(timeoutId);
+      if (err instanceof Error && err.name === "AbortError") {
+        throw new Error(`Reddit API timeout after ${API_TIMEOUT_MS}ms`);
+      }
+      throw err;
     }
-    if (!res.ok) throw new Error(`Reddit token error ${res.status}`);
-    const json = (await res.json()) as { access_token?: string };
-    if (!json.access_token) throw new Error("Reddit token response missing access_token");
-    this.token = json.access_token;
-    return this.token;
   }
 
   private async get(path: string): Promise<RedditListing> {
     const token = await this.getToken();
-    const res = await this.fetchFn(`https://oauth.reddit.com${path}`, {
-      method: "GET",
-      headers: { authorization: `Bearer ${token}`, "user-agent": USER_AGENT },
-    });
-    // Reddit allows ~100 requests/min per client; we use a handful per run, but honor a 429 if it comes.
-    if (res.status === 429) {
-      throw new RateLimitError(`Reddit API error 429 for ${path}`, backoffFromHeaders(res.headers, 300));
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), API_TIMEOUT_MS);
+    try {
+      const res = await this.fetchFn(`https://oauth.reddit.com${path}`, {
+        method: "GET",
+        headers: { authorization: `Bearer ${token}`, "user-agent": USER_AGENT },
+        signal: controller.signal,
+      });
+      clearTimeout(timeoutId);
+      // Reddit allows ~100 requests/min per client; we use a handful per run, but honor a 429 if it comes.
+      if (res.status === 429) {
+        throw new RateLimitError(`Reddit API error 429 for ${path}`, backoffFromHeaders(res.headers, 300));
+      }
+      if (!res.ok) throw new Error(`Reddit API error ${res.status} for ${path}`);
+      return (await res.json()) as RedditListing;
+    } catch (err) {
+      clearTimeout(timeoutId);
+      if (err instanceof Error && err.name === "AbortError") {
+        throw new Error(`Reddit API timeout after ${API_TIMEOUT_MS}ms`);
+      }
+      throw err;
     }
-    if (!res.ok) throw new Error(`Reddit API error ${res.status} for ${path}`);
-    return (await res.json()) as RedditListing;
   }
 
   async fetchRecent(sinceUtc: number | null): Promise<SourceItem[]> {

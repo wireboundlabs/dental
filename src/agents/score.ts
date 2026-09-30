@@ -9,7 +9,7 @@ export interface ScoreResult {
   patientInfoPresent: boolean;
 }
 
-export const SCORE_SYSTEM = `You screen public online posts for customer discovery research.
+const SCORE_SYSTEM = `You screen public online posts for customer discovery research.
 Target audience: ${NICHE}.
 Problem hypothesis: ${PROBLEM_STATEMENT}
 
