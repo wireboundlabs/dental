@@ -28,13 +28,34 @@ Justification: [1-3 sentence explanation based on the actual diff, not author cl
 
 - **High** — Anything that could violate CLAUDE.md hard rules (outbound post/email paths, scraping, secret handling); auth/Access JWT/`ACCESS_DEV_BYPASS`; D1 schema migrations that alter/drop data or non-additive indexes/relations; `wrangler.jsonc` deploy/security surface; changes that expand who can receive email or what gets stored about people/patients.
 
-### Merge Policy
+### Standing Merge Policy
 
-**Only low-risk PRs may be auto-merged** (and only after CI passes).
+**Agents SHOULD auto-merge low and medium risk PRs once CI is green.** Do not wait for a human "merge it" message.
 
-**Medium and high risk PRs must NEVER be auto-merged** — leave them open for human review.
+**High risk PRs must NEVER be auto-merged** — leave them open for mandatory human review.
 
-If risk is unclear, treat as medium (require human review).
+If risk is unclear, treat as **medium** (mergeable with post-merge flag), NOT high — unless it touches CLAUDE.md hard-rule territory (auth, secrets, auto-posting, budget, destructive migrations), which always stays high.
+
+#### Low Risk: Auto-Merge After CI
+
+- Auto-merge immediately once CI passes
+- No special flags or labels needed
+
+#### Medium Risk: Auto-Merge After CI + Post-Merge Review Flag
+
+Before or when merging a medium-risk PR:
+
+1. Add the GitHub label `needs-post-merge-review` (create if missing: `gh api repos/:owner/:repo/labels -f name='needs-post-merge-review' -f color='FFA500' -f description='Merged without pre-merge human review'`)
+2. Post a PR comment: `Post-merge review: Risk medium — agents merged without pre-merge human review. Please skim when you can.`
+3. Then merge once CI is green
+
+The owner will review medium-risk changes at their convenience.
+
+#### High Risk: NEVER Auto-Merge
+
+- Create the PR as a **draft**
+- Leave open for mandatory human review
+- Human must explicitly approve and merge
 
 ## Risk Assessment Process
 
@@ -44,9 +65,10 @@ When reviewing or merging a PR:
 2. **Classify using the repo-specific criteria above** (reference `.cursor/rules/risk-and-merge.mdc` and `.cursor/skills/assess-pr-risk/`).
 3. **Comment or update the PR body** with `Risk: [level]` + brief justification.
 4. **Merge decision:**
-   - Auto-merge only if: risk is **low** AND CI is green AND a human explicitly asked to merge (or standing low-risk auto-merge policy applies).
-   - Otherwise: stop and report risk + PR link. Do not merge medium/high risk changes.
-5. **If asked to merge a medium/high PR:** refuse the merge and explain the risk gate.
+   - **Low risk:** Auto-merge once CI is green (standing policy).
+   - **Medium risk:** Add `needs-post-merge-review` label + comment, then auto-merge once CI is green (standing policy).
+   - **High risk:** NEVER auto-merge. Leave open for mandatory human review.
+5. **If asked to merge a high-risk PR:** refuse the merge and explain the risk gate.
 
 ## Code Quality & Conventions
 
