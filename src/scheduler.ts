@@ -3,7 +3,7 @@ import { runListen } from "./agents/listen";
 import { SUBREDDITS, YOUTUBE_QUERIES } from "./config";
 import { sendDigest } from "./digest/send";
 import type { Env } from "./env";
-import { getCursor, setCursor } from "./db/queries";
+import { getCursor, getCursors, setCursor } from "./db/queries";
 import { RedditSource } from "./sources/reddit";
 import type { KeyValueStore, Source } from "./sources/types";
 import { YouTubeSource } from "./sources/youtube";
@@ -21,7 +21,7 @@ export function buildSources(env: Env, fetchFn: typeof fetch = fetch): Source[] 
     }
   }
   if (env.YOUTUBE_API_KEY) {
-    const cache: KeyValueStore = { get: (k) => getCursor(env.DB, k), set: (k, v) => setCursor(env.DB, k, v) };
+    const cache: KeyValueStore = { get: (k) => getCursor(env.DB, k), getMany: (ks) => getCursors(env.DB, ks), set: (k, v) => setCursor(env.DB, k, v) };
     for (const q of YOUTUBE_QUERIES) sources.push(new YouTubeSource(q, env.YOUTUBE_API_KEY, fetchFn, cache));
   }
   return sources;

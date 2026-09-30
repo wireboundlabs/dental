@@ -32,6 +32,10 @@ function ytFetch(opts: { disabledFor?: string[]; failWith?: { status: number; re
         }),
       );
     }
+    if (u.pathname.endsWith("/videos")) {
+      const ids = u.searchParams.get("id")!.split(",");
+      return new Response(JSON.stringify({ items: ids.map((id) => ({ id, statistics: { commentCount: "5" } })) }));
+    }
     const videoId = u.searchParams.get("videoId")!;
     if (opts.disabledFor?.includes(videoId)) {
       return new Response(JSON.stringify({ error: { errors: [{ reason: "commentsDisabled" }] } }), { status: 403 });
@@ -61,11 +65,11 @@ describe("YouTubeSource", () => {
     expect(item.createdUtc).toBe(Math.floor(Date.parse("2026-09-29T10:00:00Z") / 1000));
   });
 
-  it("drops comments at or before the cursor", async () => {
+  it("ignores the run-wide cursor: progress is tracked per video instead", async () => {
     const { fn } = ytFetch({ disabledFor: ["vid2"] });
     const since = Math.floor(Date.parse("2026-06-01T00:00:00Z") / 1000);
     const items = await new YouTubeSource("q", KEY, fn).fetchRecent(since);
-    expect(items.map((i) => i.externalId)).toEqual(["yt_c_new"]);
+    expect(items.map((i) => i.externalId).sort()).toEqual(["yt_c_new", "yt_c_old"]);
   });
 
   it("skips videos with comments disabled and results without a video id", async () => {

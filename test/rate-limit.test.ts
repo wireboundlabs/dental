@@ -4,17 +4,13 @@ import { runDraft } from "../src/agents/draft";
 import { runListen } from "../src/agents/listen";
 import { backoffFromHeaders, MAX_BACKOFF_SEC, MIN_BACKOFF_SEC, RateLimitError } from "../src/rate-limit";
 import { RedditSource } from "../src/sources/reddit";
-import type { KeyValueStore, Source } from "../src/sources/types";
+import type { Source } from "../src/sources/types";
+import { memoryStore } from "./kv";
 import { YouTubeSource } from "../src/sources/youtube";
 
 const longText = "Our front desk spends hours every day on insurance verification calls.";
 const now = new Date("2026-09-29T12:00:00Z");
 const cenv = { ...env, DAILY_BUDGET_USD: "3", CLAUDE_MODEL: "claude-haiku-4-5" };
-
-function memoryStore(): KeyValueStore & { data: Map<string, string> } {
-  const data = new Map<string, string>();
-  return { data, get: async (k) => data.get(k) ?? null, set: async (k, v) => void data.set(k, v) };
-}
 
 function ytFetch(quota?: { status: number; reason: string }) {
   const paths: string[] = [];
@@ -28,6 +24,9 @@ function ytFetch(quota?: { status: number; reason: string }) {
     }
     if (u.pathname.endsWith("/search")) {
       return new Response(JSON.stringify({ items: [{ id: { videoId: "vid1" }, snippet: { title: "T" } }] }));
+    }
+    if (u.pathname.endsWith("/videos")) {
+      return new Response(JSON.stringify({ items: [{ id: "vid1", statistics: { commentCount: "5" } }] }));
     }
     return new Response(JSON.stringify({ items: [] }));
   }) as unknown as typeof fetch;
@@ -43,8 +42,8 @@ describe("backoffFromHeaders", () => {
   });
 });
 
-describe("YouTube search cache", () => {
-  it("searches (relevance + date) once, then reuses the cached videos for later runs", async () => {
+describe("YouTube video pools", () => {
+  it("searches once per pool (best + new), then reuses the cached pools on later visits", async () => {
     const { fn, paths } = ytFetch();
     const cache = memoryStore();
     const src = new YouTubeSource("q", "k", fn, cache);
@@ -52,21 +51,21 @@ describe("YouTube search cache", () => {
     await src.fetchRecent(null);
     await src.fetchRecent(null);
     expect(paths.filter((p) => p === "search")).toHaveLength(2);
-    expect(paths.filter((p) => p === "commentThreads")).toHaveLength(3);
+    expect(paths.filter((p) => p === "videos")).toHaveLength(2); // one stats call per search page
+    expect([...cache.data.keys()].sort()).toEqual([`yt-new:${src.key}`, `yt-pool:${src.key}`]);
   });
 
-  it("re-searches when the cache entry is expired or corrupt", async () => {
+  it("re-searches when a cached pool is corrupt", async () => {
     const { fn, paths } = ytFetch();
     const cache = memoryStore();
     const src = new YouTubeSource("q", "k", fn, cache);
-    cache.data.set(`yt-search:${src.key}`, JSON.stringify({ at: 0, videos: [{ id: "old", title: "" }] }));
     await src.fetchRecent(null);
-    cache.data.set(`yt-search:${src.key}`, "not json");
+    cache.data.set(`yt-pool:${src.key}`, "not json");
     await src.fetchRecent(null);
-    expect(paths.filter((p) => p === "search")).toHaveLength(3); // relevance x2, date x1 (its cache is still fresh)
+    expect(paths.filter((p) => p === "search")).toHaveLength(3); // best, new, then best again
   });
 
-  it("works without a cache", async () => {
+  it("works without a store, searching every visit", async () => {
     const { fn, paths } = ytFetch();
     const src = new YouTubeSource("q", "k", fn);
     await src.fetchRecent(null);
@@ -77,17 +76,9 @@ describe("YouTube search cache", () => {
   it("runs one relevance and one date-ordered search, and reads each video once", async () => {
     const { fn, paths, orders } = ytFetch();
     await new YouTubeSource("q", "k", fn).fetchRecent(null);
-    expect(orders.sort()).toEqual(["date", "relevance"]);
+    expect([...orders].sort()).toEqual(["date", "relevance"]);
     // both searches return the same video; it is only read once
     expect(paths.filter((p) => p === "commentThreads")).toHaveLength(1);
-  });
-
-  it("caches the date search separately from the relevance search", async () => {
-    const { fn } = ytFetch();
-    const cache = memoryStore();
-    const src = new YouTubeSource("q", "k", fn, cache);
-    await src.fetchRecent(null);
-    expect([...cache.data.keys()].sort()).toEqual([`yt-search-new:${src.key}`, `yt-search:${src.key}`]);
   });
 });
 

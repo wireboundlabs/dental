@@ -4,8 +4,10 @@ import {
   countDraftsByStatus,
   countLeadsSince,
   editDraft,
+  existingExternalIds,
   getCapHit,
   getCursor,
+  getCursors,
   getDraft,
   insertDraft,
   insertItemIfNew,
@@ -151,5 +153,28 @@ describe("cursors", () => {
     await setCursor(db, "reddit:dentistry", "t3_a");
     await setCursor(db, "reddit:dentistry", "t3_b");
     expect(await getCursor(db, "reddit:dentistry")).toBe("t3_b");
+  });
+});
+
+describe("batch lookups", () => {
+  it("existingExternalIds returns only stored ids for that source, across chunks", async () => {
+    await db.prepare("DELETE FROM leads").run();
+    await db.prepare("DELETE FROM items").run();
+    const ids = Array.from({ length: 200 }, (_, i) => `x${i}`);
+    for (const id of ids.filter((_, i) => i % 50 === 0)) await insertItemIfNew(db, { ...item(id), source: "yt" }, now);
+    await insertItemIfNew(db, { ...item("x1"), source: "other" }, now);
+    const found = await existingExternalIds(db, "yt", ids);
+    expect([...found].sort()).toEqual(["x0", "x100", "x150", "x50"]);
+    expect((await existingExternalIds(db, "yt", [])).size).toBe(0);
+  });
+
+  it("getCursors reads many keys at once and omits missing ones", async () => {
+    await db.prepare("DELETE FROM cursors").run();
+    for (let i = 0; i < 150; i++) await setCursor(db, `k${i}`, String(i));
+    const keys = [...Array.from({ length: 150 }, (_, i) => `k${i}`), "missing"];
+    const got = await getCursors(db, keys);
+    expect(got.size).toBe(150);
+    expect(got.get("k149")).toBe("149");
+    expect(got.has("missing")).toBe(false);
   });
 });
