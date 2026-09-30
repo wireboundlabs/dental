@@ -232,6 +232,20 @@ export async function getCursor(db: D1Database, key: string): Promise<string | n
   return row?.last_seen ?? null;
 }
 
+/** Several cursors in one round trip (missing keys are absent from the map). */
+export async function getCursors(db: D1Database, keys: string[]): Promise<Map<string, string>> {
+  const out = new Map<string, string>();
+  for (let i = 0; i < keys.length; i += IN_CHUNK) {
+    const chunk = keys.slice(i, i + IN_CHUNK);
+    const { results } = await db
+      .prepare(`SELECT source_key, last_seen FROM cursors WHERE source_key IN (${chunk.map(() => "?").join(",")})`)
+      .bind(...chunk)
+      .all<{ source_key: string; last_seen: string }>();
+    for (const r of results) out.set(r.source_key, r.last_seen);
+  }
+  return out;
+}
+
 export async function setCursor(db: D1Database, key: string, lastSeen: string): Promise<void> {
   await db
     .prepare(
@@ -276,6 +290,23 @@ export async function countDraftsByStatus(db: D1Database, status: DraftStatus): 
     .bind(status)
     .first<{ n: number }>();
   return row?.n ?? 0;
+}
+
+/** D1 allows at most 100 bound parameters per statement. */
+const IN_CHUNK = 90;
+
+/** Which of these external ids are already stored for the source. One query per 90 ids, not one per id. */
+export async function existingExternalIds(db: D1Database, source: string, ids: string[]): Promise<Set<string>> {
+  const found = new Set<string>();
+  for (let i = 0; i < ids.length; i += IN_CHUNK) {
+    const chunk = ids.slice(i, i + IN_CHUNK);
+    const { results } = await db
+      .prepare(`SELECT external_id FROM items WHERE source = ? AND external_id IN (${chunk.map(() => "?").join(",")})`)
+      .bind(source, ...chunk)
+      .all<{ external_id: string }>();
+    for (const r of results) found.add(r.external_id);
+  }
+  return found;
 }
 
 export async function itemExists(db: D1Database, source: string, externalId: string): Promise<boolean> {

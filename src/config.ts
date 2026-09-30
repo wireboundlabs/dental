@@ -15,14 +15,19 @@ export const BROAD_SUBREDDIT_KEYWORDS: Record<string, string[]> = {
 };
 
 /**
- * YouTube search queries used to find videos whose comments we read. Each query runs two searches:
- * by relevance (stable, cached long) and by date (surfaces new videos, cached short).
- * Quota (10,000 units/day free): a search costs 100, a comment read 1. At the 5-minute cron (288 runs/day)
- * with MAX_SOURCES_PER_RUN sources per run and 9 queries:
- *   relevance searches 9 x 100 x (24 / 24h) = 900
- *   date searches      9 x 100 x (24 / 6h)  = 3,600
- *   comment reads      288 runs x 2 sources x (3 + 2 videos) = 2,880
- * so ~7,400 units/day. Slowing the cron cuts the comment reads; if quota is still hit, the source backs off for an hour.
+ * YouTube search queries. Each query keeps two pools of videos whose comments we read:
+ *  - "best": relevance-ordered results, 50 per page. One more page is added per day up to a maximum, and the
+ *    whole pool restarts every couple of weeks so ranking changes are picked up.
+ *  - "new": the 50 most recent uploads, refreshed every few hours.
+ * A search costs 100 quota units however many results it returns, so we take a full page of 50 and work through
+ * it, not just the top few. Stats for a page cost 1 more unit (videos.list) and let us drop videos with no
+ * comments. Each video then has its own progress marker, and is re-read on a schedule that depends on its age.
+ *
+ * Quota (10,000 units/day free) at the 5-minute cron, 9 queries, 2 sources per run:
+ *   best pool: 9 queries x 3 pages x 101 = ~2,700 in the first 3 days, then ~200/day for restarts
+ *   new pool:  9 queries x 2 refreshes/day x 101 = ~1,800/day
+ *   comment reads: at most 288 runs x 2 sources x YOUTUBE_VIDEOS_PER_VISIT = ~4,600/day, usually far less
+ * so ~6,600/day at worst, a bit more in the first three days. If quota is hit, the source backs off for an hour.
  */
 export const YOUTUBE_QUERIES = [
   "dental front desk insurance verification",
@@ -35,12 +40,26 @@ export const YOUTUBE_QUERIES = [
   "dental practice owner staffing problems",
   "dental insurance claims billing headaches",
 ];
-/** Videos taken from the relevance-ordered search, and how long that search is cached. */
-export const YOUTUBE_VIDEOS_PER_QUERY = 3;
-export const YOUTUBE_SEARCH_CACHE_HOURS = 24;
-/** Videos taken from the date-ordered search (newest uploads), and how long that search is cached. */
-export const YOUTUBE_NEW_VIDEOS_PER_QUERY = 2;
-export const YOUTUBE_NEW_SEARCH_CACHE_HOURS = 6;
+/** Results per search page (the API maximum; the cost is the same as asking for 3). */
+export const YOUTUBE_POOL_PAGE_SIZE = 50;
+/** The best pool grows by one page per interval up to this many pages, then holds. */
+export const YOUTUBE_POOL_MAX_PAGES = 3;
+export const YOUTUBE_POOL_PAGE_INTERVAL_HOURS = 24;
+/** The best pool is rebuilt from page 1 this often. */
+export const YOUTUBE_POOL_RESTART_DAYS = 14;
+/** The newest-uploads pool is refreshed this often. */
+export const YOUTUBE_NEW_POOL_REFRESH_HOURS = 12;
+/** Videos whose comments are read per source visit. */
+export const YOUTUBE_VIDEOS_PER_VISIT = 8;
+/** A video with no comments and older than this is dropped from the pool. */
+export const YOUTUBE_EMPTY_VIDEO_MAX_AGE_DAYS = 30;
+/** How often a video is re-read, by age: young videos get new comments; old ones rarely do. */
+export const YOUTUBE_RECHECK_TIERS: { maxAgeDays: number; hours: number }[] = [
+  { maxAgeDays: 7, hours: 3 },
+  { maxAgeDays: 30, hours: 12 },
+  { maxAgeDays: 180, hours: 48 },
+  { maxAgeDays: Infinity, hours: 168 },
+];
 export const YOUTUBE_COMMENTS_PER_VIDEO = 100;
 
 /** Minimum relevance (0-1) for an item to become a lead. */
@@ -48,8 +67,8 @@ export const QUALIFY_THRESHOLD = 0.7;
 
 /**
  * Workers Free allows 50 external subrequests (fetch calls) per invocation. One agents run makes, per source,
- * at most 2 searches + (relevance + new) comment reads for YouTube or 3 calls for Reddit, plus one Claude call
- * per scored item and one per draft. See test/config.test.ts, which keeps the worst case under the limit.
+ * at most 2 searches + 2 stats calls + YOUTUBE_VIDEOS_PER_VISIT comment reads for YouTube or 3 calls for Reddit,
+ * plus one Claude call per scored item and one per draft. See test/config.test.ts, which keeps the worst case under the limit.
  */
 export const WORKER_SUBREQUEST_LIMIT = 50;
 

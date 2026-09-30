@@ -211,3 +211,38 @@ describe("runListen source rotation", () => {
     expect(visited).toEqual(["a", "b", "c", "d", "e", "a", "b", "c"]);
   });
 });
+
+describe("runListen acknowledge and duplicates", () => {
+  it("acknowledges handled items, counts already-stored ones separately, and skips rescoring them", async () => {
+    const stub = claudeStub(() => low);
+    const acked: string[][] = [];
+    const src: Source = {
+      key: "test:src",
+      fetchRecent: async () => [mk("a", 100), mk("b", 200)],
+      acknowledge: async (items) => void acked.push(items.map((i) => i.externalId)),
+    };
+    const first = await runListen(cenv, [src], now, stub.fn);
+    expect(first).toMatchObject({ seen: 2, alreadyStored: 0, scored: 2 });
+    expect(acked[0].sort()).toEqual(["a", "b"]);
+
+    const second = await runListen(cenv, [src], now, stub.fn);
+    expect(second).toMatchObject({ seen: 0, alreadyStored: 2, scored: 0 });
+    expect(acked[1].sort()).toEqual(["a", "b"]); // known items count as handled
+    expect(stub.calls()).toBe(2);
+  });
+
+  it("does not acknowledge items it ran out of budget for", async () => {
+    const stub = claudeStub(() => low);
+    const acked: string[][] = [];
+    const items = Array.from({ length: 20 }, (_, i) => mk(`i${i}`, 100 + i));
+    const src: Source = {
+      key: "test:src",
+      fetchRecent: async () => items,
+      acknowledge: async (handled) => void acked.push(handled.map((i) => i.externalId)),
+    };
+    const out = await runListen(cenv, [src], now, stub.fn);
+    expect(out.scored).toBe(15); // MAX_ITEMS_PER_RUN
+    expect(acked[0]).toHaveLength(15);
+    expect(acked[0]).not.toContain("i19"); // the newest were left for next time
+  });
+});
