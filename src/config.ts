@@ -23,11 +23,12 @@ export const BROAD_SUBREDDIT_KEYWORDS: Record<string, string[]> = {
  * it, not just the top few. Stats for a page cost 1 more unit (videos.list) and let us drop videos with no
  * comments. Each video then has its own progress marker, and is re-read on a schedule that depends on its age.
  *
- * Quota (10,000 units/day free) at the 5-minute cron, 9 queries, 2 sources per run:
+ * Quota (10,000 units/day free) at the 15-minute cron (96 runs/day), 9 queries, 2 sources per run:
  *   best pool: 9 queries x 3 pages x 101 = ~2,700 in the first 3 days, then ~200/day for restarts
  *   new pool:  9 queries x 2 refreshes/day x 101 = ~1,800/day
- *   comment reads: at most 288 runs x 2 sources x YOUTUBE_VIDEOS_PER_VISIT = ~4,600/day, usually far less
- * so ~6,600/day at worst, a bit more in the first three days. If quota is hit, the source backs off for an hour.
+ *   comment reads: at most 96 runs x 2 sources x YOUTUBE_VIDEOS_PER_VISIT = ~1,500/day, usually far less
+ * so ~3,500/day at worst, a bit more in the first three days. Each source is visited about every hour
+ * (9 sources, 2 per run); if you slow the cron further, raise MAX_SOURCES_PER_RUN or freshness suffers. If quota is hit, the source backs off for an hour.
  */
 export const YOUTUBE_QUERIES = [
   "dental front desk insurance verification",
