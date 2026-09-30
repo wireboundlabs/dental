@@ -1,5 +1,7 @@
 import type { Env } from "./env";
 
+const ACCESS_CERT_TIMEOUT_MS = 5000;
+
 // Defense in depth: Cloudflare Access sits in front of the Worker, and the Worker
 // independently verifies the Access JWT. Anything that fails verification is denied.
 
@@ -51,26 +53,34 @@ export async function verifyAccess(
     if (typeof claims.exp !== "number" || claims.exp * 1000 <= now.getTime()) return null;
     if (!claims.email) return null;
 
-    const certsRes = await fetchFn(`${issuer}/cdn-cgi/access/certs`);
-    if (!certsRes.ok) return null;
-    const { keys } = (await certsRes.json()) as { keys: Jwk[] };
-    const jwk = keys.find((k) => k.kid === header.kid);
-    if (!jwk) return null;
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), ACCESS_CERT_TIMEOUT_MS);
+    try {
+      const certsRes = await fetchFn(`${issuer}/cdn-cgi/access/certs`, { signal: controller.signal });
+      clearTimeout(timeoutId);
+      if (!certsRes.ok) return null;
+      const { keys } = (await certsRes.json()) as { keys: Jwk[] };
+      const jwk = keys.find((k) => k.kid === header.kid);
+      if (!jwk) return null;
 
-    const key = await crypto.subtle.importKey(
-      "jwk",
-      jwk,
-      { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" },
-      false,
-      ["verify"],
-    );
-    const ok = await crypto.subtle.verify(
-      "RSASSA-PKCS1-v1_5",
-      key,
-      b64urlToBytes(parts[2]),
-      new TextEncoder().encode(`${parts[0]}.${parts[1]}`),
-    );
-    return ok ? { email: claims.email } : null;
+      const key = await crypto.subtle.importKey(
+        "jwk",
+        jwk,
+        { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" },
+        false,
+        ["verify"],
+      );
+      const ok = await crypto.subtle.verify(
+        "RSASSA-PKCS1-v1_5",
+        key,
+        b64urlToBytes(parts[2]),
+        new TextEncoder().encode(`${parts[0]}.${parts[1]}`),
+      );
+      return ok ? { email: claims.email } : null;
+    } catch (err) {
+      clearTimeout(timeoutId);
+      return null;
+    }
   } catch {
     return null;
   }

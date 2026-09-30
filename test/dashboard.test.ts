@@ -294,7 +294,9 @@ describe("dashboard", () => {
     const editForm = html.slice(html.indexOf(`action="/drafts/${id}/edit"`), html.indexOf("</form>", html.indexOf(`action="/drafts/${id}/edit"`)));
     expect(editForm).not.toContain("/approve");
     expect(editForm).not.toContain("/reject");
-    expect(html).toMatch(new RegExp(`<form method="post" action="/drafts/${id}/approve"><button class="ok">Approve</button></form>`));
+    expect(html).toMatch(/type="submit"/);
+    expect(html).toContain(`action="/drafts/${id}/approve"`);
+    expect(html).toContain('class="ok">Approve</button>');
   });
 
   it("the rejected tab offers Restore to pending and Approve; other tabs do not offer Restore", async () => {

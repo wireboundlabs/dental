@@ -1,7 +1,7 @@
 import { findDraftIssues } from "../agents/draft";
 import type { DraftRow, DraftStatus } from "../db/queries";
 
-export function esc(s: string): string {
+function esc(s: string): string {
   return s
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
@@ -22,13 +22,13 @@ function decodeEntities(s: string): string {
 }
 
 /** Sources prefix the stored excerpt with the video title; show it separately from the comment itself. */
-export function splitExcerpt(excerpt: string): { video: string | null; comment: string } {
+function splitExcerpt(excerpt: string): { video: string | null; comment: string } {
   const m = excerpt.match(CONTEXT_RE);
   return m ? { video: decodeEntities(m[1]), comment: excerpt.slice(m[0].length) } : { video: null, comment: excerpt };
 }
 
 /** A <time> element: readable UTC on the server, rewritten to the viewer's local time by the page script. */
-export function whenHtml(unixSeconds: number): string {
+function whenHtml(unixSeconds: number): string {
   const date = new Date(unixSeconds * 1000);
   const text = new Intl.DateTimeFormat("en-US", { timeZone: "UTC", dateStyle: "medium", timeStyle: "short" }).format(date);
   return `<time datetime="${date.toISOString()}">${esc(text)} UTC</time>`;
@@ -42,7 +42,7 @@ function card(d: DraftRow): string {
   const editable = d.status === "pending" || d.status === "approved";
   const actions: string[] = [];
   const post = (action: string, label: string, cls = "") =>
-    `<form method="post" action="/drafts/${d.id}/${action}"><button class="${cls}">${label}</button></form>`;
+    `<form method="post" action="/drafts/${d.id}/${action}"><button type="submit" class="${cls}">${label}</button></form>`;
   if (d.status === "pending") actions.push(post("approve", "Approve", "ok"), post("reject", "Reject", "no"));
   if (d.status === "approved") actions.push(post("sent", "Mark as sent", "ok"), post("reject", "Reject", "no"));
   if (d.status === "rejected") actions.push(post("restore", "Restore to pending"), post("approve", "Approve", "ok"));
@@ -65,12 +65,14 @@ function card(d: DraftRow): string {
   ${
     editable
       ? `<form method="post" action="/drafts/${d.id}/edit">
-      <textarea name="body" id="b${d.id}" rows="6">${esc(body)}</textarea>
-      <div class="row"><button>Save edit</button><button type="button" class="copy" data-target="b${d.id}">Copy</button></div>
+      <label for="b${d.id}" class="sr-only">Draft message body</label>
+      <textarea name="body" id="b${d.id}" rows="6" aria-label="Draft message body">${esc(body)}</textarea>
+      <div class="row"><button type="submit">Save edit</button><button type="button" class="copy" data-target="b${d.id}">Copy</button></div>
     </form>
     <!-- The action forms must not sit inside the edit form: HTML has no nested forms, and the parser would turn the first one into a button on the edit form. -->
     <div class="row">${actions.join("")}</div>`
-      : `<textarea readonly id="b${d.id}" rows="6">${esc(body)}</textarea>
+      : `<label for="b${d.id}" class="sr-only">Draft message body (read-only)</label>
+    <textarea readonly id="b${d.id}" rows="6" aria-label="Draft message body (read-only)">${esc(body)}</textarea>
     <div class="row"><button type="button" class="copy" data-target="b${d.id}">Copy</button>${actions.join("")}</div>`
   }
 </article>`;
@@ -78,7 +80,7 @@ function card(d: DraftRow): string {
 
 export function renderDashboard(drafts: DraftRow[], status: DraftStatus, email: string): string {
   const tabs = TABS.map(
-    (t) => `<a href="/?status=${t}" class="${t === status ? "active" : ""}">${t}</a>`,
+    (t) => `<a href="/?status=${t}" class="${t === status ? "active" : ""}" ${t === status ? 'aria-current="page"' : ""}>${t}</a>`,
   ).join("");
   return `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
@@ -87,6 +89,7 @@ export function renderDashboard(drafts: DraftRow[], status: DraftStatus, email: 
 :root{--bg:#fff;--fg:#1a1a1a;--mut:#666;--line:#ddd;--acc:#0b5fff;--ok:#0a7d33;--no:#b42318;--warn:#8a5a00}
 @media (prefers-color-scheme:dark){:root{--bg:#111;--fg:#eee;--mut:#999;--line:#333;--acc:#6ea0ff;--ok:#4cc46d;--no:#ff7b72;--warn:#e3b341}}
 body{margin:0 auto;max-width:760px;padding:16px;background:var(--bg);color:var(--fg);font:15px/1.5 system-ui,sans-serif}
+.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);border:0}
 nav a{margin-right:12px;color:var(--mut);text-decoration:none;text-transform:capitalize}
 nav a.active{color:var(--fg);font-weight:600;border-bottom:2px solid var(--acc)}
 article{border:1px solid var(--line);border-radius:8px;padding:12px;margin:12px 0}
@@ -102,7 +105,7 @@ button.ok{border-color:var(--ok);color:var(--ok)}button.no{border-color:var(--no
 blockquote{margin:.4em 0;padding:.4em .8em;border-left:3px solid var(--line);white-space:pre-wrap;overflow-wrap:anywhere}
 </style></head><body>
 <h1>Draft approvals</h1><p class="who">Signed in as ${esc(email)}. Nothing is sent from here: copy, post it yourself, then mark as sent.</p>
-<nav>${tabs}</nav>
+<nav role="navigation" aria-label="Draft status tabs">${tabs}</nav>
 ${drafts.length ? drafts.map(card).join("") : `<p class="empty">No ${status} drafts.</p>`}
 <script>
 document.querySelectorAll("time[datetime]").forEach(function(t){

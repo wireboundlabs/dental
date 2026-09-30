@@ -1,6 +1,6 @@
 // All D1 access lives here. Every statement is parameterized.
 
-export type LeadStatus = "new" | "drafted" | "contacted" | "dismissed";
+type LeadStatus = "new" | "drafted" | "contacted" | "dismissed";
 export type DraftStatus = "pending" | "approved" | "rejected" | "sent";
 export type DraftKind = "reply" | "email";
 
@@ -333,10 +333,3 @@ export async function existingExternalIds(db: D1Database, source: string, ids: s
   return found;
 }
 
-export async function itemExists(db: D1Database, source: string, externalId: string): Promise<boolean> {
-  const row = await db
-    .prepare(`SELECT 1 AS x FROM items WHERE source = ? AND external_id = ?`)
-    .bind(source, externalId)
-    .first();
-  return row !== null;
-}

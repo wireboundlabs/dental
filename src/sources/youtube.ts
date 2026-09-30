@@ -14,6 +14,7 @@ import { RateLimitError, backoffFromHeaders } from "../rate-limit";
 import type { KeyValueStore, Source, SourceItem } from "./types";
 
 const API = "https://www.googleapis.com/youtube/v3";
+const API_TIMEOUT_MS = 15000;
 
 /** 403 reasons that mean "out of quota / too fast" rather than "bad request or bad key". */
 const RATE_LIMIT_REASONS = new Set(["quotaExceeded", "dailyLimitExceeded", "rateLimitExceeded", "userRateLimitExceeded"]);
@@ -140,25 +141,37 @@ export class YouTubeSource implements Source {
   }
 
   private async get<T>(path: string, params: Record<string, string>): Promise<T> {
-    const res = await this.fetchFn(`${API}/${path}?${new URLSearchParams(params)}`, {
-      method: "GET",
-      headers: { "x-goog-api-key": this.apiKey },
-    });
-    if (!res.ok) {
-      let reason = "unknown";
-      try {
-        const body = (await res.json()) as { error?: { errors?: { reason?: string }[] } };
-        reason = body.error?.errors?.[0]?.reason ?? reason;
-      } catch {
-        // non-JSON error body
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), API_TIMEOUT_MS);
+    try {
+      const res = await this.fetchFn(`${API}/${path}?${new URLSearchParams(params)}`, {
+        method: "GET",
+        headers: { "x-goog-api-key": this.apiKey },
+        signal: controller.signal,
+      });
+      clearTimeout(timeoutId);
+      if (!res.ok) {
+        let reason = "unknown";
+        try {
+          const body = (await res.json()) as { error?: { errors?: { reason?: string }[] } };
+          reason = body.error?.errors?.[0]?.reason ?? reason;
+        } catch {
+          // non-JSON error body
+        }
+        const err = new YouTubeApiError(res.status, reason);
+        if (res.status === 429 || (res.status === 403 && RATE_LIMIT_REASONS.has(reason))) {
+          throw new RateLimitError(err.message, backoffFromHeaders(res.headers, QUOTA_BACKOFF_SEC));
+        }
+        throw err;
       }
-      const err = new YouTubeApiError(res.status, reason);
-      if (res.status === 429 || (res.status === 403 && RATE_LIMIT_REASONS.has(reason))) {
-        throw new RateLimitError(err.message, backoffFromHeaders(res.headers, QUOTA_BACKOFF_SEC));
+      return (await res.json()) as T;
+    } catch (err) {
+      clearTimeout(timeoutId);
+      if (err instanceof Error && err.name === "AbortError") {
+        throw new Error(`YouTube API timeout after ${API_TIMEOUT_MS}ms`);
       }
       throw err;
     }
-    return (await res.json()) as T;
   }
 
   private async load<T>(key: string): Promise<T | null> {
