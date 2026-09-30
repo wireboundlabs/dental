@@ -145,11 +145,14 @@ export async function getDraft(db: D1Database, id: number): Promise<DraftRow | n
     .first<DraftRow>();
 }
 
-/** Allowed human transitions. "sent" only means the human says they sent it themselves. */
+/**
+ * Allowed human transitions. "sent" only means the human says they sent it themselves.
+ * A rejection can be undone (back to pending, or straight to approved); sending stays terminal.
+ */
 const TRANSITIONS: Record<DraftStatus, DraftStatus[]> = {
   pending: ["approved", "rejected"],
   approved: ["sent", "rejected"],
-  rejected: [],
+  rejected: ["pending", "approved"],
   sent: [],
 };
 

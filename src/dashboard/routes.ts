@@ -1,12 +1,12 @@
 import { verifyAccess } from "../access";
-import { editDraft, listDraftsByStatus, transitionDraft, type DraftStatus } from "../db/queries";
+import { editDraft, getDraft, listDraftsByStatus, transitionDraft, type DraftStatus } from "../db/queries";
 import type { Env } from "../env";
 import { renderDashboard } from "./html";
 
 type DashboardEnv = Pick<Env, "DB" | "ACCESS_AUD" | "ACCESS_TEAM_DOMAIN"> & { ACCESS_DEV_BYPASS?: string };
 
 const STATUSES: DraftStatus[] = ["pending", "approved", "sent", "rejected"];
-const ACTIONS: Record<string, DraftStatus> = { approve: "approved", reject: "rejected", sent: "sent" };
+const ACTIONS: Record<string, DraftStatus> = { approve: "approved", reject: "rejected", sent: "sent", restore: "pending" };
 
 const SECURITY_HEADERS = {
   "content-security-policy":
@@ -44,7 +44,7 @@ export async function handleDashboard(
     });
   }
 
-  const m = url.pathname.match(/^\/drafts\/(\d+)\/(approve|reject|sent|edit)$/);
+  const m = url.pathname.match(/^\/drafts\/(\d+)\/(approve|reject|sent|edit|restore)$/);
   if (request.method === "POST" && m) {
     // CSRF: browsers always send Origin on cross-site POSTs. Require it to match.
     if (request.headers.get("Origin") !== url.origin) return new Response("Bad origin", { status: 403 });
@@ -56,8 +56,10 @@ export async function handleDashboard(
       const body = String((await request.formData()).get("body") ?? "").trim();
       ok = body.length > 0 && body.length <= 5000 && (await editDraft(env.DB, id, body, now));
     } else {
+      const before = await getDraft(env.DB, id);
       ok = await transitionDraft(env.DB, id, ACTIONS[action], now);
       if (action === "sent") back = "approved";
+      else if (before?.status === "rejected") back = "rejected"; // undoing a rejection: stay on that tab
     }
     if (!ok) return new Response("Not allowed", { status: 409, headers: SECURITY_HEADERS });
     return new Response(null, { status: 303, headers: { location: `/?status=${back}` } });
