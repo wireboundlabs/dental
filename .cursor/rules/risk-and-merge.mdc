@@ -1,0 +1,90 @@
+---
+name: Risk Classification & Merge Policy
+description: Change risk levels and auto-merge restrictions for this repo
+alwaysApply: true
+---
+
+# Risk Classification & Merge Policy
+
+Every PR in this repo must include an explicit risk assessment. **Medium and high risk PRs must never be auto-merged.**
+
+## Risk Levels (Tailored to This Repo)
+
+### Low (Eligible for Auto-Merge After CI)
+
+- Docs, comments, or typos only
+- Test-only changes with no production behavior change
+- Tiny isolated bugfix with low blast radius (e.g., off-by-one in a non-critical loop, obvious null check)
+- Config copy tweaks that do not change:
+  - Auth or access control
+  - Secrets handling
+  - Outbound messaging (digest format, email recipients, draft content)
+  - Budget or spend limits
+  - Source API usage patterns
+
+### Medium (Never Auto-Merge)
+
+- Behavioral changes in:
+  - `src/sources/*` (Reddit/YouTube client logic)
+  - `src/agents/*` (listen/draft logic)
+  - Scoring or draft prompts
+  - Scheduler/cron routing
+  - Dashboard UX (anything user-facing)
+  - Digest content or format
+- Cross-file refactors (even if tests pass)
+- Non-trivial quota or budget math changes
+- New dependencies (package.json changes)
+- Non-cosmetic changes to query logic in `src/db/queries.ts`
+
+### High (Never Auto-Merge)
+
+- Anything that could violate `CLAUDE.md` hard rules:
+  - Outbound post/email paths (risk: auto-posting to Reddit, emailing prospects)
+  - Scraping or unofficial API usage
+  - Secret handling (risk: secrets in code, logs, or tests)
+  - Claude API calls bypassing `src/claude/client.ts` (risk: budget overrun)
+- Auth/Access JWT changes or `ACCESS_DEV_BYPASS` logic
+- D1 schema migrations that:
+  - Alter or drop columns/tables with data
+  - Non-additive index or foreign key changes
+  - Anything that could lose customer data
+- `wrangler.jsonc` changes affecting deploy or security surface:
+  - Email allowlist
+  - Compatibility flags
+  - Bindings or routes
+- Changes that expand:
+  - Who can receive email (only `OWNER_EMAIL` is allowed)
+  - What gets stored about people or patients (privacy risk)
+  - Source API request types (must be GET-only, except OAuth token exchange)
+
+## Risk Assessment Process
+
+1. **Read the actual diff.** Do not trust a risk claim in the PR description without verifying it against the code changes.
+
+2. **Classify the change** using the repo-specific criteria above. If a PR touches multiple areas with different risk levels, use the highest risk level.
+
+3. **Include `Risk: low | medium | high` in the PR body** with a 1-3 sentence justification based on the actual diff (not author claims).
+
+4. **If risk is unclear,** treat it as medium (require human review).
+
+## Merge Policy
+
+- **Auto-merge only if:**
+  - Risk is **low**
+  - CI is green
+  - A human explicitly asked to merge (or standing low-risk auto-merge policy applies)
+
+- **Never auto-merge medium or high risk PRs.** Leave them open for human review.
+
+- **If asked to merge a medium/high PR:** refuse and explain the risk gate. Example: "This PR is classified as medium risk (changes agent logic). Per repo policy, medium and high risk PRs require human review and cannot be auto-merged."
+
+## Default to Draft for Medium/High Risk
+
+When opening a PR that is medium or high risk, create it as a **draft** by default to signal that human review is required.
+
+## Risk Assessment Reference
+
+Use the `.cursor/skills/assess-pr-risk/` skill when you need to:
+- Assess PR risk before merging
+- Decide whether a change can be auto-merged
+- Label a PR with `Risk: low|medium|high`
