@@ -45,6 +45,7 @@ function card(d: DraftRow): string {
     `<form method="post" action="/drafts/${d.id}/${action}"><button class="${cls}">${label}</button></form>`;
   if (d.status === "pending") actions.push(post("approve", "Approve", "ok"), post("reject", "Reject", "no"));
   if (d.status === "approved") actions.push(post("sent", "Mark as sent", "ok"), post("reject", "Reject", "no"));
+  if (d.status === "rejected") actions.push(post("restore", "Restore to pending"), post("approve", "Approve", "ok"));
 
   const { video, comment } = splitExcerpt(d.excerpt);
   const withheld = comment.startsWith("[excerpt withheld");
@@ -68,7 +69,7 @@ function card(d: DraftRow): string {
       <div class="row"><button>Save edit</button><button type="button" class="copy" data-target="b${d.id}">Copy</button>${actions.join("")}</div>
     </form>`
       : `<textarea readonly id="b${d.id}" rows="6">${esc(body)}</textarea>
-    <div class="row"><button type="button" class="copy" data-target="b${d.id}">Copy</button></div>`
+    <div class="row"><button type="button" class="copy" data-target="b${d.id}">Copy</button>${actions.join("")}</div>`
   }
 </article>`;
 }

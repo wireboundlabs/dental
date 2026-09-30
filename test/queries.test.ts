@@ -97,12 +97,28 @@ describe("drafts", () => {
     expect(lead?.status).toBe("contacted");
   });
 
-  it("rejects from pending and blocks further changes", async () => {
+  it("a rejected draft cannot be edited or sent, but the rejection can be undone", async () => {
     const leadId = await seedLead();
     const id = await insertDraft(db, { leadId, kind: "email", body: "hi" }, now);
     expect(await transitionDraft(db, id, "rejected", now)).toBe(true);
-    expect(await transitionDraft(db, id, "approved", now)).toBe(false);
+    expect(await transitionDraft(db, id, "sent", now)).toBe(false);
     expect(await editDraft(db, id, "changed", now)).toBe(false);
+
+    expect(await transitionDraft(db, id, "pending", now)).toBe(true); // restore
+    expect((await getDraft(db, id))?.status).toBe("pending");
+    expect(await editDraft(db, id, "changed", now)).toBe(true);
+
+    expect(await transitionDraft(db, id, "rejected", now)).toBe(true);
+    expect(await transitionDraft(db, id, "approved", now)).toBe(true); // straight to approved
+    expect((await getDraft(db, id))?.status).toBe("approved");
+  });
+
+  it("sending stays terminal", async () => {
+    const leadId = await seedLead();
+    const id = await insertDraft(db, { leadId, kind: "reply", body: "hi" }, now);
+    await transitionDraft(db, id, "approved", now);
+    await transitionDraft(db, id, "sent", now);
+    for (const to of ["pending", "approved", "rejected"] as const) expect(await transitionDraft(db, id, to, now)).toBe(false);
   });
 
   it("edits keep the original body", async () => {

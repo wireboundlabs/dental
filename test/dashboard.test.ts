@@ -226,10 +226,49 @@ describe("dashboard", () => {
     expect(d?.sent_at).toBe(now.toISOString());
   });
 
-  it("reject blocks further actions", async () => {
+  it("a rejected draft cannot be sent or edited until it is restored", async () => {
     const id = await seedDraft();
     expect((await post(`/drafts/${id}/reject`)).status).toBe(303);
-    expect((await post(`/drafts/${id}/approve`)).status).toBe(409);
+    expect((await post(`/drafts/${id}/sent`)).status).toBe(409);
+    expect((await post(`/drafts/${id}/edit`, { body: "x" })).status).toBe(409);
+  });
+
+  it("restore moves a rejected draft back to pending and stays on the rejected tab", async () => {
+    const id = await seedDraft();
+    await post(`/drafts/${id}/reject`);
+    const res = await post(`/drafts/${id}/restore`);
+    expect(res.status).toBe(303);
+    expect(res.headers.get("location")).toBe("/?status=rejected");
+    expect((await getDraft(db, id))?.status).toBe("pending");
+  });
+
+  it("a rejected draft can be approved directly", async () => {
+    const id = await seedDraft();
+    await post(`/drafts/${id}/reject`);
+    const res = await post(`/drafts/${id}/approve`);
+    expect(res.status).toBe(303);
+    expect(res.headers.get("location")).toBe("/?status=rejected");
+    expect((await getDraft(db, id))?.status).toBe("approved");
+  });
+
+  it("restore only applies to rejected drafts", async () => {
+    const id = await seedDraft();
+    expect((await post(`/drafts/${id}/restore`)).status).toBe(409); // pending already
+    await post(`/drafts/${id}/approve`);
+    expect((await post(`/drafts/${id}/restore`)).status).toBe(409);
+    await post(`/drafts/${id}/sent`);
+    expect((await post(`/drafts/${id}/restore`)).status).toBe(409);
+  });
+
+  it("the rejected tab offers Restore to pending and Approve; other tabs do not offer Restore", async () => {
+    const id = await seedDraft();
+    await post(`/drafts/${id}/reject`);
+    const rejected = await (await handleDashboard(req("/?status=rejected", await sign(goodClaims())), denv, now, certsFetch())).text();
+    expect(rejected).toContain(`action="/drafts/${id}/restore"`);
+    expect(rejected).toContain(`action="/drafts/${id}/approve"`);
+    await post(`/drafts/${id}/restore`);
+    const pending = await (await handleDashboard(req("/", await sign(goodClaims())), denv, now, certsFetch())).text();
+    expect(pending).not.toContain("/restore");
   });
 
   it("edit stores edited_body and rejects empty edits", async () => {
